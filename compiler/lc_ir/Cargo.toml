@@ -1,0 +1,6 @@
+[package]
+name = "lc_ir"
+edition = "2021"
+
+[dependencies]
+lc_idx = { path = "../lc_idx" }
