@@ -1,7 +1,0 @@
-[package]
-name = "lc_fs"
-edition = "2021"
-
-[dependencies]
-lc_trie = { path = "../lc_trie" }
-thiserror = "2.0.11"

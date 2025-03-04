@@ -1,8 +1,0 @@
-[package]
-name = "lc_syn"
-edition = "2021"
-
-[dependencies]
-lc_ast = { path = "../lc_ast" }
-lc_idx = { path = "../lc_idx" }
-thiserror = "2.0.11"

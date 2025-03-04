@@ -1,0 +1,7 @@
+[package]
+name = "unutterablec_fs"
+edition = "2021"
+
+[dependencies]
+unutterablec_trie = { path = "../unutterablec_trie" }
+thiserror = "2.0.11"

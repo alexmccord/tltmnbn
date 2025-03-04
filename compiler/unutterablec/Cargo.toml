@@ -1,0 +1,13 @@
+[package]
+name = "unutterablec"
+edition = "2021"
+
+[dependencies]
+unutterablec_ast = { path = "../unutterablec_ast" }
+unutterablec_fs = { path = "../unutterablec_fs" }
+unutterablec_idx = { path = "../unutterablec_idx" }
+unutterablec_sem = { path = "../unutterablec_sem" }
+unutterablec_syn = { path = "../unutterablec_syn" }
+unutterablec_trie = { path = "../unutterablec_trie" }
+clap = { version = "4.5.23", features = ["derive"] }
+thiserror = "2.0.11"

@@ -126,22 +126,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "equivalent"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
-
-[[package]]
-name = "eyrie"
+name = "eldritch"
 version = "0.0.0"
 dependencies = [
  "clap",
  "git2",
- "lc",
  "serde",
  "thiserror",
  "toml",
+ "unutterablec",
 ]
+
+[[package]]
+name = "equivalent"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
 
 [[package]]
 name = "form_urlencoded"
@@ -342,70 +342,6 @@ checksum = "48d1dbcbbeb6a7fec7e059840aa538bd62aaccf972c7346c4d9d2059312853d0"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "lc"
-version = "0.0.0"
-dependencies = [
- "clap",
- "lc_ast",
- "lc_fs",
- "lc_idx",
- "lc_sem",
- "lc_syn",
- "lc_trie",
- "thiserror",
-]
-
-[[package]]
-name = "lc_ast"
-version = "0.0.0"
-dependencies = [
- "lc_idx",
-]
-
-[[package]]
-name = "lc_fs"
-version = "0.0.0"
-dependencies = [
- "lc_trie",
- "thiserror",
-]
-
-[[package]]
-name = "lc_idx"
-version = "0.0.0"
-
-[[package]]
-name = "lc_ir"
-version = "0.0.0"
-dependencies = [
- "lc_idx",
-]
-
-[[package]]
-name = "lc_rt"
-version = "0.0.0"
-
-[[package]]
-name = "lc_sem"
-version = "0.0.0"
-dependencies = [
- "lc_idx",
-]
-
-[[package]]
-name = "lc_syn"
-version = "0.0.0"
-dependencies = [
- "lc_ast",
- "lc_idx",
- "thiserror",
-]
-
-[[package]]
-name = "lc_trie"
-version = "0.0.0"
 
 [[package]]
 name = "libc"
@@ -663,6 +599,70 @@ name = "unicode-ident"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb9e6ca4f869e1180728b7950e35922a7fc6397f7b641499e8f3ef06e50dc83"
+
+[[package]]
+name = "unutterablec"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "thiserror",
+ "unutterablec_ast",
+ "unutterablec_fs",
+ "unutterablec_idx",
+ "unutterablec_sem",
+ "unutterablec_syn",
+ "unutterablec_trie",
+]
+
+[[package]]
+name = "unutterablec_ast"
+version = "0.0.0"
+dependencies = [
+ "unutterablec_idx",
+]
+
+[[package]]
+name = "unutterablec_fs"
+version = "0.0.0"
+dependencies = [
+ "thiserror",
+ "unutterablec_trie",
+]
+
+[[package]]
+name = "unutterablec_idx"
+version = "0.0.0"
+
+[[package]]
+name = "unutterablec_ir"
+version = "0.0.0"
+dependencies = [
+ "unutterablec_idx",
+]
+
+[[package]]
+name = "unutterablec_rt"
+version = "0.0.0"
+
+[[package]]
+name = "unutterablec_sem"
+version = "0.0.0"
+dependencies = [
+ "unutterablec_idx",
+]
+
+[[package]]
+name = "unutterablec_syn"
+version = "0.0.0"
+dependencies = [
+ "thiserror",
+ "unutterablec_ast",
+ "unutterablec_idx",
+]
+
+[[package]]
+name = "unutterablec_trie"
+version = "0.0.0"
 
 [[package]]
 name = "url"

@@ -1,0 +1,6 @@
+[package]
+name = "unutterablec_ir"
+edition = "2021"
+
+[dependencies]
+unutterablec_idx = { path = "../unutterablec_idx" }

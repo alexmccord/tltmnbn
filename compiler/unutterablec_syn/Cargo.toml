@@ -1,0 +1,8 @@
+[package]
+name = "unutterablec_syn"
+edition = "2021"
+
+[dependencies]
+unutterablec_ast = { path = "../unutterablec_ast" }
+unutterablec_idx = { path = "../unutterablec_idx" }
+thiserror = "2.0.11"
