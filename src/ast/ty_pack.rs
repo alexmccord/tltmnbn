@@ -2,6 +2,8 @@ use std::ops;
 
 use id_arena::{Arena, Id};
 
+use crate::ast::ty_expr::TyExprId;
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TyPackExprArena {
     ty_pack_exprs: Arena<TyPackExpr>,
@@ -36,5 +38,5 @@ impl ops::Index<TyPackExprId> for TyPackExprArena {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TyPackExpr {
-    Todo,
+    Pack(Vec<TyExprId>, Option<TyPackExprId>),
 }
