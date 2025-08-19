@@ -10,6 +10,7 @@ use crate::ast::expr::{Expr, ExprArena, ExprId};
 use crate::ast::stmt::{Stmt, StmtArena, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprArena, TyExprId};
 use crate::ast::ty_pack::{TyPackExpr, TyPackExprArena, TyPackExprId};
+use crate::operands::Operands;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AstArena {
@@ -192,5 +193,22 @@ impl<'a> From<&'a TyExpr> for AstNodeRef<'a> {
 impl<'a> From<&'a TyPackExpr> for AstNodeRef<'a> {
     fn from(value: &'a TyPackExpr) -> Self {
         AstNodeRef::TyPackExpr(value)
+    }
+}
+
+impl Operands<AstNodeId> for AstNode {
+    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
+        self.as_ref().for_each_operand(f);
+    }
+}
+
+impl Operands<AstNodeId> for AstNodeRef<'_> {
+    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
+        match self {
+            AstNodeRef::Expr(expr) => expr.for_each_operand(f),
+            AstNodeRef::Stmt(stmt) => stmt.for_each_operand(f),
+            AstNodeRef::TyExpr(ty_expr) => ty_expr.for_each_operand(f),
+            AstNodeRef::TyPackExpr(ty_pack_expr) => ty_pack_expr.for_each_operand(f),
+        }
     }
 }

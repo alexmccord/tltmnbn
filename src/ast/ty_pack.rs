@@ -2,7 +2,9 @@ use std::ops;
 
 use id_arena::{Arena, Id};
 
+use crate::ast::AstNodeId;
 use crate::ast::ty_expr::TyExprId;
+use crate::operands::Operands;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TyPackExprArena {
@@ -38,5 +40,45 @@ impl ops::Index<TyPackExprId> for TyPackExprArena {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TyPackExpr {
-    Pack(Vec<TyExprId>, Option<TyPackExprId>),
+    List(TyPackExprList),
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TyPackExprList {
+    head: Vec<TyExprId>,
+    tail: Option<TyPackExprId>,
+}
+
+impl TyPackExprList {
+    pub fn new(head: Vec<TyExprId>, tail: Option<TyPackExprId>) -> TyPackExprList {
+        TyPackExprList { head, tail }
+    }
+
+    pub fn head(&self) -> &[TyExprId] {
+        &self.head
+    }
+
+    pub fn tail(&self) -> Option<TyPackExprId> {
+        self.tail
+    }
+}
+
+impl Operands<AstNodeId> for TyPackExpr {
+    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
+        match self {
+            TyPackExpr::List(ty_pack_expr_list) => ty_pack_expr_list.for_each_operand(f),
+        }
+    }
+}
+
+impl Operands<AstNodeId> for TyPackExprList {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        for &ty_expr in self.head() {
+            f(ty_expr.into());
+        }
+
+        if let Some(ty_pack_expr) = self.tail() {
+            f(ty_pack_expr.into());
+        }
+    }
 }

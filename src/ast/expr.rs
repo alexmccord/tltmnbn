@@ -2,10 +2,12 @@ use std::ops;
 
 use id_arena::{Arena, Id};
 
+use crate::ast::AstNodeId;
 use crate::ast::name::{Local, Name};
-use crate::ast::stmt::Block;
+use crate::ast::stmt::BlockStmt;
 use crate::ast::ty_expr::TyExprId;
 use crate::ast::ty_pack::TyPackExprId;
+use crate::operands::Operands;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ExprArena {
@@ -41,58 +43,58 @@ impl ops::Index<ExprId> for ExprArena {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Expr {
-    Nil(NilLiteral),
-    Number(NumberLiteral),
-    String(StringLiteral),
-    Bool(BoolLiteral),
-    Ident(Ident),
-    Field(Field),
-    Subscript(Subscript),
-    Group(Group),
-    Varargs(Varargs),
-    Call(Call),
-    Function(Function),
-    Unary(Unary),
-    Binary(Binary),
+    Nil(NilExpr),
+    Number(NumberExpr),
+    String(StringExpr),
+    Boolean(BooleanExpr),
+    Ident(IdentExpr),
+    Field(FieldExpr),
+    Subscript(SubscriptExpr),
+    Group(GroupExpr),
+    Varargs(VarargsExpr),
+    Call(CallExpr),
+    Function(FunctionExpr),
+    Unary(UnaryExpr),
+    Binary(BinaryExpr),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct NilLiteral;
+pub struct NilExpr;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct BoolLiteral(bool);
+pub struct BooleanExpr(bool);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct NumberLiteral(String);
+pub struct NumberExpr(String);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct StringLiteral(String);
+pub struct StringExpr(String);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Ident(String);
+pub struct IdentExpr(String);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Field {
-    pub expr: ExprId,
-    pub field: String,
+pub struct FieldExpr {
+    expr: ExprId,
+    field: String,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Subscript {
-    pub expr: ExprId,
-    pub index: ExprId,
+pub struct SubscriptExpr {
+    expr: ExprId,
+    index: ExprId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Group {
-    pub expr: ExprId,
+pub struct GroupExpr {
+    expr: ExprId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Varargs;
+pub struct VarargsExpr;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Call {
+pub struct CallExpr {
     function: ExprId,
     self_argument: Option<ExprId>,
     arguments: Vec<ExprId>,
@@ -109,16 +111,16 @@ pub struct ParamPack {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct ParamVec {
+pub struct Parameters {
     params: Vec<Param>,
     param_pack: Option<ParamPack>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Function {
-    parameters: ParamVec,
+pub struct FunctionExpr {
+    parameters: Parameters,
     return_annotation: Option<TyPackExprId>,
-    body: Block,
+    body: BlockStmt,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -129,9 +131,9 @@ pub enum UnaryOp {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Unary {
-    pub op: UnaryOp,
-    pub expr: ExprId,
+pub struct UnaryExpr {
+    op: UnaryOp,
+    expr: ExprId,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -155,15 +157,15 @@ pub enum BinaryOp {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Binary {
-    pub lhs: ExprId,
-    pub op: BinaryOp,
-    pub rhs: ExprId,
+pub struct BinaryExpr {
+    lhs: ExprId,
+    op: BinaryOp,
+    rhs: ExprId,
 }
 
-impl BoolLiteral {
-    pub fn new(literal: bool) -> BoolLiteral {
-        BoolLiteral(literal)
+impl BooleanExpr {
+    pub fn new(literal: bool) -> BooleanExpr {
+        BooleanExpr(literal)
     }
 
     pub fn literal(&self) -> &bool {
@@ -171,9 +173,9 @@ impl BoolLiteral {
     }
 }
 
-impl NumberLiteral {
-    pub fn new(literal: impl Into<String>) -> NumberLiteral {
-        NumberLiteral(literal.into())
+impl NumberExpr {
+    pub fn new(literal: impl Into<String>) -> NumberExpr {
+        NumberExpr(literal.into())
     }
 
     pub fn literal(&self) -> &str {
@@ -181,9 +183,9 @@ impl NumberLiteral {
     }
 }
 
-impl StringLiteral {
-    pub fn new(literal: impl Into<String>) -> StringLiteral {
-        StringLiteral(literal.into())
+impl StringExpr {
+    pub fn new(literal: impl Into<String>) -> StringExpr {
+        StringExpr(literal.into())
     }
 
     pub fn literal(&self) -> &str {
@@ -191,13 +193,54 @@ impl StringLiteral {
     }
 }
 
-impl Ident {
-    pub fn new(ident: impl Into<String>) -> Ident {
-        Ident(ident.into())
+impl IdentExpr {
+    pub fn new(ident: impl Into<String>) -> IdentExpr {
+        IdentExpr(ident.into())
     }
 
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+}
+
+impl FieldExpr {
+    pub fn new(expr: ExprId, field: impl Into<String>) -> FieldExpr {
+        FieldExpr {
+            expr,
+            field: field.into(),
+        }
+    }
+
+    pub fn expr(&self) -> ExprId {
+        self.expr
+    }
+
+    pub fn field(&self) -> &str {
+        &self.field
+    }
+}
+
+impl SubscriptExpr {
+    pub fn new(expr: ExprId, index: ExprId) -> SubscriptExpr {
+        SubscriptExpr { expr, index }
+    }
+
+    pub fn expr(&self) -> ExprId {
+        self.expr
+    }
+
+    pub fn index(&self) -> ExprId {
+        self.index
+    }
+}
+
+impl GroupExpr {
+    pub fn new(expr: ExprId) -> GroupExpr {
+        GroupExpr { expr }
+    }
+
+    pub fn expr(&self) -> ExprId {
+        self.expr
     }
 }
 
@@ -216,7 +259,7 @@ impl Param {
         self.local.name()
     }
 
-    pub fn annotation(&self) -> Option<&TyExprId> {
+    pub fn annotation(&self) -> Option<TyExprId> {
         self.local.annotation()
     }
 }
@@ -226,78 +269,118 @@ impl ParamPack {
         ParamPack { annotation }
     }
 
-    pub fn annotation(&self) -> Option<&TyPackExprId> {
-        self.annotation.as_ref()
+    pub fn annotation(&self) -> Option<TyPackExprId> {
+        self.annotation
     }
 }
 
-impl ParamVec {
-    pub fn new(params: Vec<Param>, param_pack: Option<ParamPack>) -> ParamVec {
-        ParamVec { params, param_pack }
+impl Parameters {
+    pub fn new(params: Vec<Param>, param_pack: Option<ParamPack>) -> Parameters {
+        Parameters { params, param_pack }
     }
 
-    pub fn iter(&self) -> ParamIter {
-        ParamIter {
+    pub fn head(&self) -> &[Param] {
+        &self.params
+    }
+
+    pub fn tail(&self) -> Option<&ParamPack> {
+        self.param_pack.as_ref()
+    }
+
+    pub fn iter(&self) -> ParametersIter {
+        ParametersIter {
             parameters: self,
             index: 0,
         }
     }
 }
 
-impl Function {
+impl FunctionExpr {
     pub fn new(
-        parameters: ParamVec,
+        parameters: Parameters,
         return_annotation: Option<TyPackExprId>,
-        body: Block,
-    ) -> Function {
-        Function {
+        body: BlockStmt,
+    ) -> FunctionExpr {
+        FunctionExpr {
             parameters,
             return_annotation,
             body,
         }
     }
 
-    pub fn parameters(&self) -> &ParamVec {
+    pub fn parameters(&self) -> &Parameters {
         &self.parameters
     }
 
-    pub fn parameters_iter(&self) -> ParamIter {
-        self.parameters().iter()
+    pub fn return_annotation(&self) -> Option<TyPackExprId> {
+        self.return_annotation
     }
 
-    pub fn return_annotation(&self) -> Option<&TyPackExprId> {
-        self.return_annotation.as_ref()
-    }
-
-    pub fn body(&self) -> &Block {
+    pub fn body(&self) -> &BlockStmt {
         &self.body
     }
 }
 
-impl Call {
-    pub fn new(function: ExprId, self_argument: Option<ExprId>, arguments: Vec<ExprId>) -> Call {
-        Call {
+impl CallExpr {
+    pub fn new(
+        function: ExprId,
+        self_argument: Option<ExprId>,
+        arguments: Vec<ExprId>,
+    ) -> CallExpr {
+        CallExpr {
             function,
             self_argument,
             arguments,
         }
     }
 
-    pub fn function(&self) -> &ExprId {
-        &self.function
+    pub fn function(&self) -> ExprId {
+        self.function
     }
 
-    pub fn arguments(&self) -> ArgumentIter {
-        ArgumentIter {
+    pub fn arguments(&self) -> ArgumentsIter {
+        ArgumentsIter {
             call: self,
             index: 0,
         }
     }
 }
 
+impl UnaryExpr {
+    pub fn new(op: UnaryOp, expr: ExprId) -> UnaryExpr {
+        UnaryExpr { op, expr }
+    }
+
+    pub fn op(&self) -> UnaryOp {
+        self.op
+    }
+
+    pub fn expr(&self) -> ExprId {
+        self.expr
+    }
+}
+
+impl BinaryExpr {
+    pub fn new(lhs: ExprId, op: BinaryOp, rhs: ExprId) -> BinaryExpr {
+        BinaryExpr { lhs, op, rhs }
+    }
+
+    pub fn lhs(&self) -> ExprId {
+        self.lhs
+    }
+
+    pub fn op(&self) -> BinaryOp {
+        self.op
+    }
+
+    pub fn rhs(&self) -> ExprId {
+        self.rhs
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct ParamIter<'a> {
-    parameters: &'a ParamVec,
+pub struct ParametersIter<'a> {
+    parameters: &'a Parameters,
     index: usize,
 }
 
@@ -307,16 +390,16 @@ pub enum ParamKind<'a> {
     ParamPack(&'a ParamPack),
 }
 
-impl<'a> IntoIterator for &'a ParamVec {
+impl<'a> IntoIterator for &'a Parameters {
     type Item = ParamKind<'a>;
-    type IntoIter = ParamIter<'a>;
+    type IntoIter = ParametersIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a> Iterator for ParamIter<'a> {
+impl<'a> Iterator for ParametersIter<'a> {
     type Item = ParamKind<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -342,7 +425,7 @@ impl<'a> Iterator for ParamIter<'a> {
     }
 }
 
-impl ExactSizeIterator for ParamIter<'_> {
+impl ExactSizeIterator for ParametersIter<'_> {
     fn len(&self) -> usize {
         self.parameters
             .params
@@ -352,18 +435,18 @@ impl ExactSizeIterator for ParamIter<'_> {
     }
 }
 
-pub struct ArgumentIter<'a> {
-    call: &'a Call,
+pub struct ArgumentsIter<'a> {
+    call: &'a CallExpr,
     index: usize,
 }
 
-impl<'a> Iterator for ArgumentIter<'a> {
-    type Item = &'a ExprId;
+impl Iterator for ArgumentsIter<'_> {
+    type Item = ExprId;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let result = match self.call.self_argument.as_ref() {
+        let result = match self.call.self_argument {
             Some(self_argument) if self.index == 0 => Some(self_argument),
-            _ => self.call.arguments.get(self.index),
+            _ => self.call.arguments.get(self.index).cloned(),
         };
 
         if result.is_some() {
@@ -378,7 +461,7 @@ impl<'a> Iterator for ArgumentIter<'a> {
     }
 }
 
-impl ExactSizeIterator for ArgumentIter<'_> {
+impl ExactSizeIterator for ArgumentsIter<'_> {
     fn len(&self) -> usize {
         self.call
             .arguments
@@ -388,9 +471,139 @@ impl ExactSizeIterator for ArgumentIter<'_> {
     }
 }
 
+impl Operands<AstNodeId> for Expr {
+    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
+        match self {
+            Expr::Nil(nil_expr) => nil_expr.for_each_operand(f),
+            Expr::Number(number_expr) => number_expr.for_each_operand(f),
+            Expr::String(string_expr) => string_expr.for_each_operand(f),
+            Expr::Boolean(boolean_expr) => boolean_expr.for_each_operand(f),
+            Expr::Ident(ident_expr) => ident_expr.for_each_operand(f),
+            Expr::Field(field_expr) => field_expr.for_each_operand(f),
+            Expr::Subscript(subscript_expr) => subscript_expr.for_each_operand(f),
+            Expr::Group(group_expr) => group_expr.for_each_operand(f),
+            Expr::Varargs(varargs_expr) => varargs_expr.for_each_operand(f),
+            Expr::Call(call_expr) => call_expr.for_each_operand(f),
+            Expr::Function(function_expr) => function_expr.for_each_operand(f),
+            Expr::Unary(unary_expr) => unary_expr.for_each_operand(f),
+            Expr::Binary(binary_expr) => binary_expr.for_each_operand(f),
+        }
+    }
+}
+
+impl Operands<AstNodeId> for NilExpr {
+    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
+}
+
+impl Operands<AstNodeId> for BooleanExpr {
+    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
+}
+
+impl Operands<AstNodeId> for NumberExpr {
+    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
+}
+
+impl Operands<AstNodeId> for StringExpr {
+    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
+}
+
+impl Operands<AstNodeId> for IdentExpr {
+    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
+}
+
+impl Operands<AstNodeId> for FieldExpr {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.expr().into());
+    }
+}
+
+impl Operands<AstNodeId> for SubscriptExpr {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.expr().into());
+        f(self.index().into());
+    }
+}
+
+impl Operands<AstNodeId> for GroupExpr {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.expr().into());
+    }
+}
+
+impl Operands<AstNodeId> for VarargsExpr {
+    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
+}
+
+impl Operands<AstNodeId> for CallExpr {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.function().into());
+
+        for arg in self.arguments() {
+            f(arg.into());
+        }
+    }
+}
+
+impl Operands<AstNodeId> for Param {
+    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
+        self.local().for_each_operand(f);
+    }
+}
+
+impl Operands<AstNodeId> for ParamPack {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        if let Some(annotation) = self.annotation() {
+            f(annotation.into());
+        }
+    }
+}
+
+impl Operands<AstNodeId> for ParamKind<'_> {
+    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
+        match self {
+            ParamKind::Param(param) => param.for_each_operand(f),
+            ParamKind::ParamPack(param_pack) => param_pack.for_each_operand(f),
+        }
+    }
+}
+
+impl Operands<AstNodeId> for Parameters {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        for param in self {
+            param.for_each_operand(&mut f);
+        }
+    }
+}
+
+impl Operands<AstNodeId> for FunctionExpr {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        self.parameters().for_each_operand(&mut f);
+
+        if let Some(id) = self.return_annotation() {
+            f(id.into());
+        }
+
+        self.body().for_each_operand(f);
+    }
+}
+
+impl Operands<AstNodeId> for UnaryExpr {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.expr().into());
+    }
+}
+
+impl Operands<AstNodeId> for BinaryExpr {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.lhs().into());
+        f(self.rhs().into());
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::ast::{AstArena, ty_pack::TyPackExpr};
+    use crate::ast::AstArena;
+    use crate::ast::ty_pack::{TyPackExpr, TyPackExprList};
 
     use super::*;
 
@@ -398,33 +611,32 @@ mod tests {
     fn iterate_parameters() {
         let mut ast_arena = AstArena::new();
         let param_pack_annotation =
-            ast_arena.alloc_ty_pack_expr(TyPackExpr::Pack(Vec::new(), None));
+            ast_arena.alloc_ty_pack_expr(TyPackExpr::List(TyPackExprList::new(Vec::new(), None)));
 
-        let params = vec![
+        let params = [
             Param::new("x", None),
             Param::new("y", None),
             Param::new("z", None),
         ];
 
-        test(&vec![], None);
-        test(&vec![], Some(&ParamPack::new(None)));
-        test(&vec![], Some(&ParamPack::new(Some(param_pack_annotation))));
+        test(&[], None);
+        test(&[], Some(ParamPack::new(None)));
+        test(&[], Some(ParamPack::new(Some(param_pack_annotation))));
         test(&params, None);
-        test(&params, Some(&ParamPack::new(None)));
-        test(&params, Some(&ParamPack::new(Some(param_pack_annotation))));
+        test(&params, Some(ParamPack::new(None)));
+        test(&params, Some(ParamPack::new(Some(param_pack_annotation))));
 
-        fn test<'a>(params: &'a Vec<Param>, param_pack: Option<&'a ParamPack>) {
-            let parameters = ParamVec::new(params.clone(), param_pack.cloned());
-
+        fn test(params: &[Param], param_pack: Option<ParamPack>) {
             let mut expected = Vec::new();
             for param in params {
-                expected.push(ParamKind::Param(&param));
+                expected.push(ParamKind::Param(param));
             }
 
-            if let Some(param_kind) = param_pack {
-                expected.push(ParamKind::ParamPack(&param_kind));
+            if let Some(param_kind) = &param_pack {
+                expected.push(ParamKind::ParamPack(param_kind));
             }
 
+            let parameters = Parameters::new(params.to_vec(), param_pack.clone());
             assert!(parameters.iter().eq(expected.iter().cloned()));
         }
     }
@@ -433,12 +645,12 @@ mod tests {
     fn iterate_arguments() {
         let mut ast_arena = AstArena::new();
 
-        let f = ast_arena.alloc_expr(Expr::Ident(Ident::new("f")));
-        let x = ast_arena.alloc_expr(Expr::Number(NumberLiteral::new("5")));
-        let y = ast_arena.alloc_expr(Expr::Number(NumberLiteral::new("7")));
-        let call = Call::new(f, None, vec![x, y]);
+        let f = ast_arena.alloc_expr(Expr::Ident(IdentExpr::new("f")));
+        let x = ast_arena.alloc_expr(Expr::Number(NumberExpr::new("5")));
+        let y = ast_arena.alloc_expr(Expr::Number(NumberExpr::new("7")));
+        let call = CallExpr::new(f, None, vec![x, y]);
 
-        let expected = vec![x, y];
-        assert!(call.arguments().eq(expected.iter()));
+        let expected = [x, y];
+        assert!(call.arguments().eq(expected.iter().cloned()));
     }
 }

@@ -3,18 +3,18 @@ use std::collections::{HashMap, VecDeque};
 use crate::analysis::scope::{ScopeArena, ScopeId};
 use crate::ast::expr::Expr;
 use crate::ast::name::Name;
-use crate::ast::stmt::Block;
+use crate::ast::stmt::BlockStmt;
 use crate::ast::{AstArena, AstNodeId, AstNodeRef};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Symbol(usize);
 
-pub fn rename(ast_arena: &AstArena, root: &Block) -> RenamedAst {
+pub fn rename(ast_arena: &AstArena, root: &BlockStmt) -> RenamedAst {
     let mut scope_arena = ScopeArena::new();
     let mut renamed_ast = RenamedAst::new();
 
     let mut queue = VecDeque::from_iter(
-        root.stmts
+        root.stmts()
             .iter()
             .cloned()
             .map(|s| (None::<ScopeId>, AstNodeId::from(s))),
@@ -61,7 +61,11 @@ impl RenamedAst {
             Expr::Function(function) => todo!(),
             Expr::Unary(unary) => todo!(),
             Expr::Binary(binary) => todo!(),
-            Expr::Nil(_) | Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Varargs(_) => {
+            Expr::Nil(_)
+            | Expr::Number(_)
+            | Expr::String(_)
+            | Expr::Boolean(_)
+            | Expr::Varargs(_) => {
                 todo!()
             }
         }
@@ -73,9 +77,9 @@ mod tests {
     use super::*;
 
     use crate::ast::AstArena;
-    use crate::ast::expr::{Call, Expr, Ident, NumberLiteral};
+    use crate::ast::expr::{CallExpr, Expr, IdentExpr, NumberExpr};
     use crate::ast::name::Local;
-    use crate::ast::stmt::{Block, ExprStmt, LocalDecl, Stmt};
+    use crate::ast::stmt::{BlockStmt, ExprStmt, LocalStmt, Stmt};
 
     #[test]
     fn rename_locals() {
@@ -84,29 +88,25 @@ mod tests {
         // print(x)    -- print(x_1)
         let mut ast_arena = AstArena::new();
 
-        let x = Local::new("x", None);
+        let seven = ast_arena.alloc_expr(Expr::Number(NumberExpr::new("7")));
+        let local_x0 = ast_arena.alloc_stmt(Stmt::Local(LocalStmt::new(
+            vec![Local::new("x", None)],
+            vec![seven],
+        )));
 
-        let seven = ast_arena.alloc_expr(Expr::Number(NumberLiteral::new("7")));
-        let local_x0 = ast_arena.alloc_stmt(Stmt::LocalDecl(LocalDecl {
-            locals: vec![x.clone()],
-            exprs: vec![seven],
-        }));
+        let x0 = ast_arena.alloc_expr(Expr::Ident(IdentExpr::new("x")));
+        let local_x1 = ast_arena.alloc_stmt(Stmt::Local(LocalStmt::new(
+            vec![Local::new("x", None)],
+            vec![x0],
+        )));
 
-        let x0 = ast_arena.alloc_expr(Expr::Ident(Ident::new("x")));
-        let local_x1 = ast_arena.alloc_stmt(Stmt::LocalDecl(LocalDecl {
-            locals: vec![x],
-            exprs: vec![x0],
-        }));
+        let x1 = ast_arena.alloc_expr(Expr::Ident(IdentExpr::new("x")));
+        let print = ast_arena.alloc_expr(Expr::Ident(IdentExpr::new("print")));
+        let print_x1 = ast_arena.alloc_expr(Expr::Call(CallExpr::new(print, None, vec![x1])));
 
-        let x1 = ast_arena.alloc_expr(Expr::Ident(Ident::new("x")));
-        let print = ast_arena.alloc_expr(Expr::Ident(Ident::new("print")));
-        let print_x1 = ast_arena.alloc_expr(Expr::Call(Call::new(print, None, vec![x1])));
+        let print_x1_stmt = ast_arena.alloc_stmt(Stmt::Expr(ExprStmt::new(print_x1)));
 
-        let print_x1_stmt = ast_arena.alloc_stmt(Stmt::Expr(ExprStmt(print_x1)));
-
-        let module = Block {
-            stmts: vec![local_x0, local_x1, print_x1_stmt],
-        };
+        let module = BlockStmt::new(vec![local_x0, local_x1, print_x1_stmt]);
 
         let renamed_ast = rename(&ast_arena, &module);
     }

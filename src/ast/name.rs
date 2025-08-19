@@ -1,4 +1,6 @@
+use crate::ast::AstNodeId;
 use crate::ast::ty_expr::TyExprId;
+use crate::operands::Operands;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Name(String);
@@ -16,12 +18,6 @@ impl Name {
 
     pub fn as_str(&self) -> &str {
         self.0.as_str()
-    }
-}
-
-impl From<Name> for String {
-    fn from(value: Name) -> Self {
-        value.0
     }
 }
 
@@ -49,7 +45,15 @@ impl Local {
         &self.name
     }
 
-    pub fn annotation(&self) -> Option<&TyExprId> {
-        self.annotation.as_ref()
+    pub fn annotation(&self) -> Option<TyExprId> {
+        self.annotation
+    }
+}
+
+impl Operands<AstNodeId> for Local {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        if let Some(annotation) = self.annotation() {
+            f(annotation.into());
+        }
     }
 }

@@ -2,8 +2,11 @@ use std::ops;
 
 use id_arena::{Arena, Id};
 
-use crate::ast::expr::{BinaryOp, ExprId, Function};
+use crate::ast::AstNodeId;
+use crate::ast::expr::{BinaryOp, ExprId, FunctionExpr, Parameters};
 use crate::ast::name::{Local, Name};
+use crate::ast::ty_pack::TyPackExprId;
+use crate::operands::Operands;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct StmtArena {
@@ -39,104 +42,488 @@ impl ops::Index<StmtId> for StmtArena {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Stmt {
-    Block(Block),
-    Branch(Branch),
-    While(While),
-    Repeat(Repeat),
-    ForRange(ForRange),
-    ForIter(ForIter),
-    Break(Break),
-    Continue(Continue),
-    Return(Return),
+    Block(BlockStmt),
+    Branch(IfStmt),
+    While(WhileStmt),
+    Repeat(RepeatStmt),
+    ForRange(ForRangeStmt),
+    ForIter(ForIterStmt),
+    Break(BreakStmt),
+    Continue(ContinueStmt),
+    Return(ReturnStmt),
     Expr(ExprStmt),
-    LocalDecl(LocalDecl),
-    Assign(Assign),
-    CompoundAssign(CompoundAssign),
-    FunctionDecl(FunctionDecl),
-    LocalFunctionDecl(LocalFunctionDecl),
+    Local(LocalStmt),
+    Assign(AssignStmt),
+    CompoundAssign(CompoundAssignStmt),
+    Function(FunctionStmt),
+    LocalFunction(LocalFunctionStmt),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Block {
-    pub stmts: Vec<StmtId>,
+pub struct BlockStmt {
+    stmts: Vec<StmtId>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Branch {
-    pub condition: ExprId,
-    pub then_body: Block,
-    pub else_body: Option<Block>,
+pub struct IfStmt {
+    condition: ExprId,
+    then_body: BlockStmt,
+    else_body: Option<BlockStmt>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct While {
-    pub condition: ExprId,
-    pub body: Block,
+pub struct WhileStmt {
+    condition: ExprId,
+    body: BlockStmt,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Repeat {
-    pub body: Block,
-    pub condition: ExprId,
+pub struct RepeatStmt {
+    body: BlockStmt,
+    condition: ExprId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct ForRange {
-    pub local: Local,
-    pub from: ExprId,
-    pub to: ExprId,
-    pub step: Option<ExprId>,
-    pub body: Block,
+pub struct ForRangeStmt {
+    var: Local,
+    from: ExprId,
+    to: ExprId,
+    step: Option<ExprId>,
+    body: BlockStmt,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct ForIter {
-    pub locals: Vec<Local>,
-    pub exprs: Vec<ExprId>,
-    pub body: Block,
+pub struct ForIterStmt {
+    vars: Vec<Local>,
+    exprs: Vec<ExprId>,
+    body: BlockStmt,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Break;
+pub struct BreakStmt;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Continue;
+pub struct ContinueStmt;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Return {
-    pub exprs: Vec<ExprId>,
+pub struct ReturnStmt {
+    exprs: Vec<ExprId>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct ExprStmt(pub ExprId);
+pub struct ExprStmt(ExprId);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct LocalDecl {
-    pub locals: Vec<Local>,
-    pub exprs: Vec<ExprId>,
+pub struct LocalStmt {
+    locals: Vec<Local>,
+    exprs: Vec<ExprId>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Assign {
-    pub lvalues: Vec<ExprId>,
-    pub rvalues: Vec<ExprId>,
+pub struct AssignStmt {
+    lvalues: Vec<ExprId>,
+    rvalues: Vec<ExprId>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct CompoundAssign {
-    pub lvalue: ExprId,
-    pub op: BinaryOp,
-    pub rvalue: ExprId,
+pub struct CompoundAssignStmt {
+    lvalue: ExprId,
+    op: BinaryOp,
+    rvalue: ExprId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct FunctionDecl {
-    pub expr: ExprId,
-    pub function: Function,
+pub struct FunctionStmt {
+    name: ExprId,
+    function: FunctionExpr,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct LocalFunctionDecl {
-    pub local: Name,
-    pub function: Function,
+pub struct LocalFunctionStmt {
+    name: Name,
+    function: FunctionExpr,
+}
+
+impl BlockStmt {
+    pub fn new(stmts: Vec<StmtId>) -> BlockStmt {
+        BlockStmt { stmts }
+    }
+
+    pub fn stmts(&self) -> &[StmtId] {
+        &self.stmts
+    }
+}
+
+impl IfStmt {
+    pub fn new(condition: ExprId, then_body: BlockStmt, else_body: Option<BlockStmt>) -> IfStmt {
+        IfStmt {
+            condition,
+            then_body,
+            else_body,
+        }
+    }
+
+    pub fn condition(&self) -> ExprId {
+        self.condition
+    }
+
+    pub fn then_body(&self) -> &BlockStmt {
+        &self.then_body
+    }
+
+    pub fn else_body(&self) -> Option<&BlockStmt> {
+        self.else_body.as_ref()
+    }
+}
+
+impl WhileStmt {
+    pub fn new(condition: ExprId, body: BlockStmt) -> WhileStmt {
+        WhileStmt { condition, body }
+    }
+
+    pub fn condition(&self) -> ExprId {
+        self.condition
+    }
+
+    pub fn body(&self) -> &BlockStmt {
+        &self.body
+    }
+}
+
+impl RepeatStmt {
+    pub fn new(body: BlockStmt, condition: ExprId) -> RepeatStmt {
+        RepeatStmt { body, condition }
+    }
+
+    pub fn body(&self) -> &BlockStmt {
+        &self.body
+    }
+
+    pub fn condition(&self) -> ExprId {
+        self.condition
+    }
+}
+
+impl ForRangeStmt {
+    pub fn new(
+        var: Local,
+        from: ExprId,
+        to: ExprId,
+        step: Option<ExprId>,
+        body: BlockStmt,
+    ) -> ForRangeStmt {
+        ForRangeStmt {
+            var,
+            from,
+            to,
+            step,
+            body,
+        }
+    }
+
+    pub fn var(&self) -> &Local {
+        &self.var
+    }
+
+    pub fn from(&self) -> ExprId {
+        self.from
+    }
+
+    pub fn to(&self) -> ExprId {
+        self.to
+    }
+
+    pub fn step(&self) -> Option<ExprId> {
+        self.step
+    }
+
+    pub fn body(&self) -> &BlockStmt {
+        &self.body
+    }
+}
+
+impl ForIterStmt {
+    pub fn new(vars: Vec<Local>, exprs: Vec<ExprId>, body: BlockStmt) -> ForIterStmt {
+        ForIterStmt { vars, exprs, body }
+    }
+
+    pub fn vars(&self) -> &[Local] {
+        &self.vars
+    }
+
+    pub fn exprs(&self) -> &[ExprId] {
+        &self.exprs
+    }
+
+    pub fn body(&self) -> &BlockStmt {
+        &self.body
+    }
+}
+
+impl ReturnStmt {
+    pub fn new(exprs: Vec<ExprId>) -> ReturnStmt {
+        ReturnStmt { exprs }
+    }
+
+    pub fn exprs(&self) -> &[ExprId] {
+        &self.exprs
+    }
+}
+
+impl ExprStmt {
+    pub fn new(expr: ExprId) -> ExprStmt {
+        ExprStmt(expr)
+    }
+
+    pub fn expr(&self) -> ExprId {
+        self.0
+    }
+}
+
+impl LocalStmt {
+    pub fn new(locals: Vec<Local>, exprs: Vec<ExprId>) -> LocalStmt {
+        LocalStmt { locals, exprs }
+    }
+
+    pub fn locals(&self) -> &[Local] {
+        &self.locals
+    }
+
+    pub fn exprs(&self) -> &[ExprId] {
+        &self.exprs
+    }
+}
+
+impl AssignStmt {
+    pub fn new(lvalues: Vec<ExprId>, rvalues: Vec<ExprId>) -> AssignStmt {
+        AssignStmt { lvalues, rvalues }
+    }
+
+    pub fn lvalues(&self) -> &[ExprId] {
+        &self.lvalues
+    }
+
+    pub fn rvalues(&self) -> &[ExprId] {
+        &self.rvalues
+    }
+}
+
+impl CompoundAssignStmt {
+    pub fn new(lvalue: ExprId, op: BinaryOp, rvalue: ExprId) -> CompoundAssignStmt {
+        CompoundAssignStmt { lvalue, op, rvalue }
+    }
+
+    pub fn lvalue(&self) -> ExprId {
+        self.lvalue
+    }
+
+    pub fn op(&self) -> BinaryOp {
+        self.op
+    }
+
+    pub fn rvalue(&self) -> ExprId {
+        self.rvalue
+    }
+}
+
+impl FunctionStmt {
+    pub fn new(name: ExprId, function: FunctionExpr) -> FunctionStmt {
+        FunctionStmt { name, function }
+    }
+
+    pub fn name(&self) -> ExprId {
+        self.name
+    }
+
+    pub fn function(&self) -> &FunctionExpr {
+        &self.function
+    }
+
+    pub fn parameters(&self) -> &Parameters {
+        self.function().parameters()
+    }
+
+    pub fn return_annotation(&self) -> Option<TyPackExprId> {
+        self.function().return_annotation()
+    }
+
+    pub fn body(&self) -> &BlockStmt {
+        self.function().body()
+    }
+}
+
+impl LocalFunctionStmt {
+    pub fn new(name: impl Into<Name>, function: FunctionExpr) -> LocalFunctionStmt {
+        LocalFunctionStmt {
+            name: name.into(),
+            function,
+        }
+    }
+
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
+
+    pub fn function(&self) -> &FunctionExpr {
+        &self.function
+    }
+
+    pub fn parameters(&self) -> &Parameters {
+        self.function().parameters()
+    }
+
+    pub fn return_annotation(&self) -> Option<TyPackExprId> {
+        self.function().return_annotation()
+    }
+
+    pub fn body(&self) -> &BlockStmt {
+        self.function().body()
+    }
+}
+
+impl Operands<AstNodeId> for Stmt {
+    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
+        match self {
+            Stmt::Block(block_stmt) => block_stmt.for_each_operand(f),
+            Stmt::Branch(branch_stmt) => branch_stmt.for_each_operand(f),
+            Stmt::While(while_stmt) => while_stmt.for_each_operand(f),
+            Stmt::Repeat(repeat_stmt) => repeat_stmt.for_each_operand(f),
+            Stmt::ForRange(for_range_stmt) => for_range_stmt.for_each_operand(f),
+            Stmt::ForIter(for_iter_stmt) => for_iter_stmt.for_each_operand(f),
+            Stmt::Break(break_stmt) => break_stmt.for_each_operand(f),
+            Stmt::Continue(continue_stmt) => continue_stmt.for_each_operand(f),
+            Stmt::Return(return_stmt) => return_stmt.for_each_operand(f),
+            Stmt::Expr(expr_stmt) => expr_stmt.for_each_operand(f),
+            Stmt::Local(local_stmt) => local_stmt.for_each_operand(f),
+            Stmt::Assign(assign_stmt) => assign_stmt.for_each_operand(f),
+            Stmt::CompoundAssign(compound_assign_stmt) => compound_assign_stmt.for_each_operand(f),
+            Stmt::Function(function_stmt) => function_stmt.for_each_operand(f),
+            Stmt::LocalFunction(local_function_stmt) => local_function_stmt.for_each_operand(f),
+        }
+    }
+}
+
+impl Operands<AstNodeId> for BlockStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        for &stmt in self.stmts() {
+            f(stmt.into())
+        }
+    }
+}
+
+impl Operands<AstNodeId> for IfStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.condition().into());
+        self.then_body().for_each_operand(&mut f);
+
+        if let Some(else_body) = self.else_body() {
+            else_body.for_each_operand(f);
+        }
+    }
+}
+
+impl Operands<AstNodeId> for WhileStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.condition().into());
+        self.body().for_each_operand(f);
+    }
+}
+
+impl Operands<AstNodeId> for RepeatStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        self.body().for_each_operand(&mut f);
+        f(self.condition().into());
+    }
+}
+
+impl Operands<AstNodeId> for ForRangeStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        self.var().for_each_operand(&mut f);
+
+        f(self.from().into());
+        f(self.to().into());
+        if let Some(step) = self.step() {
+            f(step.into());
+        }
+
+        self.body().for_each_operand(f);
+    }
+}
+
+impl Operands<AstNodeId> for ForIterStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        for var in self.vars() {
+            var.for_each_operand(&mut f);
+        }
+
+        for &expr in self.exprs() {
+            f(expr.into());
+        }
+    }
+}
+
+impl Operands<AstNodeId> for BreakStmt {
+    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
+}
+
+impl Operands<AstNodeId> for ContinueStmt {
+    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
+}
+
+impl Operands<AstNodeId> for ReturnStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        for &expr in self.exprs() {
+            f(expr.into());
+        }
+    }
+}
+
+impl Operands<AstNodeId> for ExprStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.expr().into());
+    }
+}
+
+impl Operands<AstNodeId> for LocalStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        for local in self.locals() {
+            local.for_each_operand(&mut f);
+        }
+
+        for &expr in self.exprs() {
+            f(expr.into());
+        }
+    }
+}
+
+impl Operands<AstNodeId> for AssignStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        for &lvalue in self.lvalues() {
+            f(lvalue.into());
+        }
+
+        for &rvalue in self.rvalues() {
+            f(rvalue.into());
+        }
+    }
+}
+
+impl Operands<AstNodeId> for CompoundAssignStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.lvalue().into());
+        f(self.rvalue().into());
+    }
+}
+
+impl Operands<AstNodeId> for FunctionStmt {
+    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
+        f(self.name().into());
+        self.function().for_each_operand(f);
+    }
+}
+
+impl Operands<AstNodeId> for LocalFunctionStmt {
+    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
+        self.function().for_each_operand(f);
+    }
 }
