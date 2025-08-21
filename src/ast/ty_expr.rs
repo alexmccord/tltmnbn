@@ -29,6 +29,12 @@ impl TyExprArena {
     }
 }
 
+impl TyExprId {
+    pub fn index(&self) -> usize {
+        self.0.index()
+    }
+}
+
 impl ops::Index<TyExprId> for TyExprArena {
     type Output = TyExpr;
 

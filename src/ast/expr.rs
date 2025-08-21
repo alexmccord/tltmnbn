@@ -33,6 +33,12 @@ impl ExprArena {
     }
 }
 
+impl ExprId {
+    pub fn index(&self) -> usize {
+        self.0.index()
+    }
+}
+
 impl ops::Index<ExprId> for ExprArena {
     type Output = Expr;
 
@@ -94,10 +100,15 @@ pub struct GroupExpr {
 pub struct VarargsExpr;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct CallExpr {
-    function: ExprId,
+pub struct Arguments {
     self_argument: Option<ExprId>,
     arguments: Vec<ExprId>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct CallExpr {
+    function: ExprId,
+    arguments: Arguments,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -287,10 +298,27 @@ impl Parameters {
         self.param_pack.as_ref()
     }
 
+    pub fn get(&self, index: usize) -> Option<ParamKind> {
+        match self.head().get(index) {
+            Some(param) => Some(ParamKind::Param(param)),
+            None if index == self.head().len() => self.tail().map(ParamKind::ParamPack),
+            None => None,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.head().len() + self.tail().iter().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn iter(&self) -> ParametersIter {
         ParametersIter {
             parameters: self,
-            index: 0,
+            start: 0,
+            end: self.len(),
         }
     }
 }
@@ -321,15 +349,46 @@ impl FunctionExpr {
     }
 }
 
+impl Arguments {
+    pub fn new(self_argument: Option<ExprId>, arguments: Vec<ExprId>) -> Arguments {
+        Arguments {
+            self_argument,
+            arguments,
+        }
+    }
+
+    pub fn is_self(&self) -> bool {
+        self.self_argument.is_some()
+    }
+
+    pub fn get(&self, index: usize) -> Option<ExprId> {
+        match self.self_argument {
+            Some(self_argument) if index == 0 => Some(self_argument),
+            _ => self.arguments.get(index).copied(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.self_argument.iter().len() + self.arguments.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn iter(&self) -> ArgumentsIter {
+        ArgumentsIter {
+            args: self,
+            start: 0,
+            end: self.len(),
+        }
+    }
+}
+
 impl CallExpr {
-    pub fn new(
-        function: ExprId,
-        self_argument: Option<ExprId>,
-        arguments: Vec<ExprId>,
-    ) -> CallExpr {
+    pub fn new(function: ExprId, arguments: Arguments) -> CallExpr {
         CallExpr {
             function,
-            self_argument,
             arguments,
         }
     }
@@ -338,11 +397,8 @@ impl CallExpr {
         self.function
     }
 
-    pub fn arguments(&self) -> ArgumentsIter {
-        ArgumentsIter {
-            call: self,
-            index: 0,
-        }
+    pub fn arguments(&self) -> &Arguments {
+        &self.arguments
     }
 }
 
@@ -381,13 +437,23 @@ impl BinaryExpr {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ParametersIter<'a> {
     parameters: &'a Parameters,
-    index: usize,
+    start: usize,
+    end: usize,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum ParamKind<'a> {
     Param(&'a Param),
     ParamPack(&'a ParamPack),
+}
+
+impl ParamKind<'_> {
+    pub fn annotation(&self) -> Option<AstNodeId> {
+        match self {
+            ParamKind::Param(param) => param.annotation().map(|a| a.into()),
+            ParamKind::ParamPack(param_pack) => param_pack.annotation().map(|a| a.into()),
+        }
+    }
 }
 
 impl<'a> IntoIterator for &'a Parameters {
@@ -403,21 +469,13 @@ impl<'a> Iterator for ParametersIter<'a> {
     type Item = ParamKind<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let result = match self.parameters.params.get(self.index) {
-            Some(result) => Some(ParamKind::Param(result)),
-            None if self.index == self.parameters.params.len() => self
-                .parameters
-                .param_pack
-                .as_ref()
-                .map(ParamKind::ParamPack),
-            None => return None,
-        };
-
-        if result.is_some() {
-            self.index += 1;
+        if self.start == self.end {
+            return None;
         }
 
-        result
+        let result = self.parameters.get(self.start)?;
+        self.start += 1;
+        Some(result)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -425,35 +483,50 @@ impl<'a> Iterator for ParametersIter<'a> {
     }
 }
 
+impl DoubleEndedIterator for ParametersIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.end == self.start {
+            return None;
+        }
+
+        let result = self.parameters.get(self.end.saturating_sub(1))?;
+        self.end -= 1;
+        Some(result)
+    }
+}
+
 impl ExactSizeIterator for ParametersIter<'_> {
     fn len(&self) -> usize {
-        self.parameters
-            .params
-            .len()
-            .saturating_sub(self.parameters.param_pack.iter().len())
-            .saturating_sub(self.index)
+        self.end - self.start
     }
 }
 
 pub struct ArgumentsIter<'a> {
-    call: &'a CallExpr,
-    index: usize,
+    args: &'a Arguments,
+    start: usize,
+    end: usize,
+}
+
+impl<'a> IntoIterator for &'a Arguments {
+    type Item = ExprId;
+    type IntoIter = ArgumentsIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 impl Iterator for ArgumentsIter<'_> {
     type Item = ExprId;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let result = match self.call.self_argument {
-            Some(self_argument) if self.index == 0 => Some(self_argument),
-            _ => self.call.arguments.get(self.index).cloned(),
-        };
-
-        if result.is_some() {
-            self.index += 1;
+        if self.start == self.end {
+            return None;
         }
 
-        result
+        let result = self.args.get(self.start)?;
+        self.start += 1;
+        Some(result)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -461,13 +534,21 @@ impl Iterator for ArgumentsIter<'_> {
     }
 }
 
+impl DoubleEndedIterator for ArgumentsIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.end == self.start {
+            return None;
+        }
+
+        let result = self.args.get(self.end.saturating_sub(1))?;
+        self.end -= 1;
+        Some(result)
+    }
+}
+
 impl ExactSizeIterator for ArgumentsIter<'_> {
     fn len(&self) -> usize {
-        self.call
-            .arguments
-            .len()
-            .saturating_sub(self.call.self_argument.iter().len())
-            .saturating_sub(self.index)
+        self.end - self.start
     }
 }
 
@@ -637,7 +718,7 @@ mod tests {
             }
 
             let parameters = Parameters::new(params.to_vec(), param_pack.clone());
-            assert!(parameters.iter().eq(expected.iter().cloned()));
+            assert!(parameters.iter().eq(expected));
         }
     }
 
@@ -645,12 +726,11 @@ mod tests {
     fn iterate_arguments() {
         let mut ast_arena = AstArena::new();
 
-        let f = ast_arena.alloc_expr(Expr::Ident(IdentExpr::new("f")));
         let x = ast_arena.alloc_expr(Expr::Number(NumberExpr::new("5")));
         let y = ast_arena.alloc_expr(Expr::Number(NumberExpr::new("7")));
-        let call = CallExpr::new(f, None, vec![x, y]);
+        let arguments = Arguments::new(None, vec![x, y]);
 
         let expected = [x, y];
-        assert!(call.arguments().eq(expected.iter().cloned()));
+        assert!(arguments.iter().eq(expected));
     }
 }

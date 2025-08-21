@@ -32,6 +32,12 @@ impl StmtArena {
     }
 }
 
+impl StmtId {
+    pub fn index(&self) -> usize {
+        self.0.index()
+    }
+}
+
 impl ops::Index<StmtId> for StmtArena {
     type Output = Stmt;
 

@@ -30,6 +30,12 @@ impl TyPackExprArena {
     }
 }
 
+impl TyPackExprId {
+    pub fn index(&self) -> usize {
+        self.0.index()
+    }
+}
+
 impl ops::Index<TyPackExprId> for TyPackExprArena {
     type Output = TyPackExpr;
 

@@ -1,8 +1,10 @@
+pub mod antecedent;
 pub mod expr;
 pub mod name;
 pub mod stmt;
 pub mod ty_expr;
 pub mod ty_pack;
+pub mod visitor;
 
 use std::ops;
 
@@ -47,7 +49,7 @@ impl AstNode {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum AstNodeRef<'a> {
     Expr(&'a Expr),
     Stmt(&'a Stmt),
