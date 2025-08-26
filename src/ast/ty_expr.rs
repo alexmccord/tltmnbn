@@ -27,6 +27,14 @@ impl TyExprArena {
     pub fn get(&self, TyExprId(id): TyExprId) -> Option<&TyExpr> {
         self.ty_exprs.get(id)
     }
+
+    pub fn len(&self) -> usize {
+        self.ty_exprs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl TyExprId {

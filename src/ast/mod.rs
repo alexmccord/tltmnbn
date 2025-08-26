@@ -39,7 +39,7 @@ pub enum AstNode {
 }
 
 impl AstNode {
-    pub fn as_ref(&self) -> AstNodeRef {
+    pub fn as_ref(&self) -> AstNodeRef<'_> {
         match self {
             AstNode::Expr(expr) => AstNodeRef::Expr(expr),
             AstNode::Stmt(stmt) => AstNodeRef::Stmt(stmt),
@@ -92,7 +92,7 @@ impl AstArena {
         self.ty_pack_exprs.alloc(ty_pack_expr)
     }
 
-    pub fn get(&self, ast_node_id: AstNodeId) -> Option<AstNodeRef> {
+    pub fn get(&self, ast_node_id: AstNodeId) -> Option<AstNodeRef<'_>> {
         match ast_node_id {
             AstNodeId::ExprId(id) => self.get_expr(id).map(From::from),
             AstNodeId::StmtId(id) => self.get_stmt(id).map(From::from),
@@ -115,6 +115,35 @@ impl AstArena {
 
     pub fn get_ty_pack_expr(&self, ty_pack_expr_id: TyPackExprId) -> Option<&TyPackExpr> {
         self.ty_pack_exprs.get(ty_pack_expr_id)
+    }
+
+    pub fn get_expr_arena(&self) -> &ExprArena {
+        &self.exprs
+    }
+
+    pub fn get_stmt_arena(&self) -> &StmtArena {
+        &self.stmts
+    }
+
+    pub fn get_ty_expr_arena(&self) -> &TyExprArena {
+        &self.ty_exprs
+    }
+
+    pub fn get_ty_pack_expr_arena(&self) -> &TyPackExprArena {
+        &self.ty_pack_exprs
+    }
+
+    pub fn len(&self) -> usize {
+        let expr_len = self.get_expr_arena().len();
+        let stmt_len = self.get_stmt_arena().len();
+        let ty_expr_len = self.get_ty_expr_arena().len();
+        let ty_pack_expr_len = self.get_ty_pack_expr_arena().len();
+
+        expr_len + stmt_len + ty_expr_len + ty_pack_expr_len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

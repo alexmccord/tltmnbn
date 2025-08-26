@@ -30,6 +30,14 @@ impl StmtArena {
     pub fn get(&self, StmtId(id): StmtId) -> Option<&Stmt> {
         self.stmts.get(id)
     }
+
+    pub fn len(&self) -> usize {
+        self.stmts.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl StmtId {

@@ -31,6 +31,14 @@ impl ExprArena {
     pub fn get(&self, ExprId(id): ExprId) -> Option<&Expr> {
         self.exprs.get(id)
     }
+
+    pub fn len(&self) -> usize {
+        self.exprs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl ExprId {
@@ -267,11 +275,15 @@ impl Param {
     }
 
     pub fn name(&self) -> &Name {
-        self.local.name()
+        self.local().name()
+    }
+
+    pub fn name_str(&self) -> &str {
+        self.name().as_str()
     }
 
     pub fn annotation(&self) -> Option<TyExprId> {
-        self.local.annotation()
+        self.local().annotation()
     }
 }
 
@@ -298,7 +310,7 @@ impl Parameters {
         self.param_pack.as_ref()
     }
 
-    pub fn get(&self, index: usize) -> Option<ParamKind> {
+    pub fn get(&self, index: usize) -> Option<ParamKind<'_>> {
         match self.head().get(index) {
             Some(param) => Some(ParamKind::Param(param)),
             None if index == self.head().len() => self.tail().map(ParamKind::ParamPack),
@@ -314,7 +326,7 @@ impl Parameters {
         self.len() == 0
     }
 
-    pub fn iter(&self) -> ParametersIter {
+    pub fn iter(&self) -> ParametersIter<'_> {
         ParametersIter {
             parameters: self,
             start: 0,

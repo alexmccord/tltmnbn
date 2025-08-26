@@ -28,6 +28,14 @@ impl TyPackExprArena {
     pub fn get(&self, TyPackExprId(id): TyPackExprId) -> Option<&TyPackExpr> {
         self.ty_pack_exprs.get(id)
     }
+
+    pub fn len(&self) -> usize {
+        self.ty_pack_exprs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl TyPackExprId {

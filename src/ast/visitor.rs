@@ -14,16 +14,6 @@ pub enum Literal<'ast> {
     Boolean(&'ast BooleanExpr),
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum FunctionCtxt {
-    /// local f = function(x) return x end
-    Inline,
-    /// function f(x) return x end
-    Assign,
-    /// local function f(x) return x end
-    Local,
-}
-
 pub trait Visitor<'ast>: Sized {
     type Result: VisitorResult;
 
@@ -75,6 +65,10 @@ pub trait Visitor<'ast>: Sized {
         walk_noop(self, call_expr)
     }
 
+    fn visit_function_expr(&mut self, function_expr: &'ast FunctionExpr) -> Self::Result {
+        walk_function(self, function_expr)
+    }
+
     fn visit_unary_expr(&mut self, unary_expr: &'ast UnaryExpr) -> Self::Result {
         walk_noop(self, unary_expr)
     }
@@ -87,17 +81,67 @@ pub trait Visitor<'ast>: Sized {
         walk_stmt(self, stmt)
     }
 
+    fn visit_block(&mut self, block: &'ast BlockStmt) -> Self::Result {
+        walk_noop(self, block)
+    }
+
+    fn visit_if_stmt(&mut self, if_stmt: &'ast IfStmt) -> Self::Result {
+        walk_if_stmt(self, if_stmt)
+    }
+
+    fn visit_while_stmt(&mut self, while_stmt: &'ast WhileStmt) -> Self::Result {
+        self.visit_block(while_stmt.body())
+    }
+
+    fn visit_repeat_stmt(&mut self, repeat_stmt: &'ast RepeatStmt) -> Self::Result {
+        self.visit_block(repeat_stmt.body())
+    }
+
+    fn visit_for_range_stmt(&mut self, for_range_stmt: &'ast ForRangeStmt) -> Self::Result {
+        todo!()
+    }
+
+    fn visit_for_iter_stmt(&mut self, for_iter_stmt: &'ast ForIterStmt) -> Self::Result {
+        todo!()
+    }
+
+    fn visit_break_stmt(&mut self, break_stmt: &'ast BreakStmt) -> Self::Result {
+        walk_noop(self, break_stmt)
+    }
+
+    fn visit_continue_stmt(&mut self, continue_stmt: &'ast ContinueStmt) -> Self::Result {
+        walk_noop(self, continue_stmt)
+    }
+
+    fn visit_return_stmt(&mut self, return_stmt: &'ast ReturnStmt) -> Self::Result {
+        walk_noop(self, return_stmt)
+    }
+
+    fn visit_expr_stmt(&mut self, expr_stmt: &'ast ExprStmt) -> Self::Result {
+        walk_noop(self, expr_stmt)
+    }
+
+    fn visit_local_stmt(&mut self, local_stmt: &'ast LocalStmt) -> Self::Result {
+        walk_local_stmt(self, local_stmt)
+    }
+
+    fn visit_assign_stmt(&mut self, assign_stmt: &'ast AssignStmt) -> Self::Result {
+        walk_noop(self, assign_stmt)
+    }
+
+    fn visit_compound_assign(
+        &mut self,
+        compound_assign_stmt: &'ast CompoundAssignStmt,
+    ) -> Self::Result {
+        walk_noop(self, compound_assign_stmt)
+    }
+
     fn visit_ty_expr(&mut self, ty_expr: &'ast TyExpr) -> Self::Result {
         walk_ty_expr(self, ty_expr)
     }
 
     fn visit_ty_pack_expr(&mut self, ty_pack_expr: &'ast TyPackExpr) -> Self::Result {
         walk_ty_pack_expr(self, ty_pack_expr)
-    }
-
-    fn visit_function(&mut self, function: &'ast FunctionExpr, ctxt: FunctionCtxt) -> Self::Result {
-        _ = ctxt;
-        walk_noop(self, function)
     }
 
     fn visit_parameter(&mut self, parameter: &'ast Param) -> Self::Result {
@@ -158,14 +202,47 @@ impl<T> VisitorResult for ControlFlow<T> {
     }
 }
 
-pub fn walk_noop<'a, V, T: 'a>(_: &mut V, _: T) -> V::Result
+macro_rules! try_visit {
+    ($e:expr) => {
+        match $crate::ast::visitor::VisitorResult::branch($e) {
+            ::core::ops::ControlFlow::Continue(()) => (),
+            ::core::ops::ControlFlow::Break(r) => {
+                return $crate::ast::visitor::VisitorResult::from_residual(r);
+            }
+        }
+    };
+}
+
+fn walk_noop<'a, V, T: 'a>(_: &mut V, _: T) -> V::Result
 where
     V: Visitor<'a>,
 {
     V::Result::output()
 }
 
-pub fn walk_expr<'a, V>(vis: &mut V, expr: &'a Expr) -> V::Result
+fn walk_function<'a, V>(vis: &mut V, function: &'a FunctionExpr) -> V::Result
+where
+    V: Visitor<'a>,
+{
+    try_visit!(walk_params(vis, function.parameters()));
+    V::Result::output()
+}
+
+fn walk_params<'a, V>(vis: &mut V, parameters: &'a Parameters) -> V::Result
+where
+    V: Visitor<'a>,
+{
+    for param in parameters {
+        match param {
+            ParamKind::Param(param) => try_visit!(vis.visit_parameter(param)),
+            ParamKind::ParamPack(param_pack) => try_visit!(vis.visit_parameter_pack(param_pack)),
+        }
+    }
+
+    V::Result::output()
+}
+
+fn walk_expr<'a, V>(vis: &mut V, expr: &'a Expr) -> V::Result
 where
     V: Visitor<'a>,
 {
@@ -180,38 +257,62 @@ where
         Expr::Group(group_expr) => vis.visit_group_expr(group_expr),
         Expr::Varargs(varargs_expr) => vis.visit_varargs_expr(varargs_expr),
         Expr::Call(call_expr) => vis.visit_call_expr(call_expr),
-        Expr::Function(function_expr) => vis.visit_function(function_expr, FunctionCtxt::Inline),
+        Expr::Function(function_expr) => vis.visit_function_expr(function_expr),
         Expr::Unary(unary_expr) => vis.visit_unary_expr(unary_expr),
         Expr::Binary(binary_expr) => vis.visit_binary_expr(binary_expr),
     }
 }
 
-pub fn walk_stmt<'a, V>(vis: &mut V, stmt: &'a Stmt) -> V::Result
+fn walk_stmt<'a, V>(vis: &mut V, stmt: &'a Stmt) -> V::Result
 where
     V: Visitor<'a>,
 {
     match stmt {
-        Stmt::Block(block_stmt) => todo!(),
-        Stmt::Branch(if_stmt) => todo!(),
-        Stmt::While(while_stmt) => todo!(),
-        Stmt::Repeat(repeat_stmt) => todo!(),
-        Stmt::ForRange(for_range_stmt) => todo!(),
-        Stmt::ForIter(for_iter_stmt) => todo!(),
-        Stmt::Break(break_stmt) => todo!(),
-        Stmt::Continue(continue_stmt) => todo!(),
-        Stmt::Return(return_stmt) => todo!(),
-        Stmt::Expr(expr_stmt) => todo!(),
-        Stmt::Local(local_stmt) => todo!(),
-        Stmt::Assign(assign_stmt) => todo!(),
-        Stmt::CompoundAssign(compound_assign_stmt) => todo!(),
-        Stmt::Function(function_stmt) => {
-            vis.visit_function(function_stmt.function(), FunctionCtxt::Assign)
+        Stmt::Block(block_stmt) => vis.visit_block(block_stmt),
+        Stmt::Branch(if_stmt) => vis.visit_if_stmt(if_stmt),
+        Stmt::While(while_stmt) => vis.visit_while_stmt(while_stmt),
+        Stmt::Repeat(repeat_stmt) => vis.visit_repeat_stmt(repeat_stmt),
+        Stmt::ForRange(for_range_stmt) => vis.visit_for_range_stmt(for_range_stmt),
+        Stmt::ForIter(for_iter_stmt) => vis.visit_for_iter_stmt(for_iter_stmt),
+        Stmt::Break(break_stmt) => vis.visit_break_stmt(break_stmt),
+        Stmt::Continue(continue_stmt) => vis.visit_continue_stmt(continue_stmt),
+        Stmt::Return(return_stmt) => vis.visit_return_stmt(return_stmt),
+        Stmt::Expr(expr_stmt) => vis.visit_expr_stmt(expr_stmt),
+        Stmt::Local(local_stmt) => vis.visit_local_stmt(local_stmt),
+        Stmt::Assign(assign_stmt) => vis.visit_assign_stmt(assign_stmt),
+        Stmt::CompoundAssign(compound_assign_stmt) => {
+            vis.visit_compound_assign(compound_assign_stmt)
         }
+        Stmt::Function(function_stmt) => todo!(),
         Stmt::LocalFunction(local_function_stmt) => todo!(),
     }
 }
 
-pub fn walk_ty_expr<'a, V>(vis: &mut V, ty_expr: &'a TyExpr) -> V::Result
+fn walk_if_stmt<'a, V>(vis: &mut V, if_stmt: &'a IfStmt) -> V::Result
+where
+    V: Visitor<'a>,
+{
+    try_visit!(vis.visit_block(if_stmt.then_body()));
+
+    if let Some(else_body) = if_stmt.else_body() {
+        try_visit!(vis.visit_block(else_body));
+    }
+
+    V::Result::output()
+}
+
+fn walk_local_stmt<'a, V>(vis: &mut V, local_stmt: &'a LocalStmt) -> V::Result
+where
+    V: Visitor<'a>,
+{
+    for local in local_stmt.locals() {
+        try_visit!(vis.visit_local(local))
+    }
+
+    V::Result::output()
+}
+
+fn walk_ty_expr<'a, V>(vis: &mut V, ty_expr: &'a TyExpr) -> V::Result
 where
     V: Visitor<'a>,
 {
@@ -220,7 +321,7 @@ where
     }
 }
 
-pub fn walk_ty_pack_expr<'a, V>(vis: &mut V, ty_pack_expr: &'a TyPackExpr) -> V::Result
+fn walk_ty_pack_expr<'a, V>(vis: &mut V, ty_pack_expr: &'a TyPackExpr) -> V::Result
 where
     V: Visitor<'a>,
 {
@@ -238,24 +339,27 @@ impl<'ast, V> AstVisitor<V>
 where
     V: Visitor<'ast>,
 {
-    pub fn build(ast_arena: &'ast AstArena, visitor: V, root: &'ast BlockStmt) -> V::Result {
-        let mut state = AstVisitor {
+    pub fn new(visitor: V) -> AstVisitor<V> {
+        AstVisitor {
             visitor,
             queue: VecDeque::new(),
-        };
+        }
+    }
 
-        state.push_block(root);
+    pub fn visit(mut self, ast_arena: &'ast AstArena, root: &'ast BlockStmt) -> V::Result {
+        self.push_block(root);
 
-        while let Some(node_id) = state.pop() {
+        while let Some(node_id) = self.pop() {
             let node = ast_arena.get(node_id).unwrap();
-
-            match state.visit_node(node).branch() {
-                ControlFlow::Continue(()) => state.push_node(node),
-                ControlFlow::Break(r) => return V::Result::from_residual(r),
-            }
+            try_visit!(self.visit_node(node));
+            self.push_node(node);
         }
 
         V::Result::output()
+    }
+
+    pub fn build(visitor: V, ast_arena: &'ast AstArena, root: &'ast BlockStmt) -> V::Result {
+        AstVisitor::new(visitor).visit(ast_arena, root)
     }
 
     fn visit_node(&mut self, node: AstNodeRef<'ast>) -> V::Result {
@@ -431,3 +535,6 @@ where
         self.queue.pop_back()
     }
 }
+
+#[cfg(test)]
+mod tests {}
