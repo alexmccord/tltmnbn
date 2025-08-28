@@ -3,11 +3,10 @@ use std::ops;
 use id_arena::{Arena, Id};
 
 use crate::ast::AstNodeId;
-use crate::ast::name::{Local, Name};
+use crate::ast::name::{Local, NameId};
 use crate::ast::stmt::BlockStmt;
 use crate::ast::ty_expr::TyExprId;
 use crate::ast::ty_pack::TyPackExprId;
-use crate::operands::Operands;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ExprArena {
@@ -264,7 +263,7 @@ impl GroupExpr {
 }
 
 impl Param {
-    pub fn new(name: impl Into<String>, annotation: Option<TyExprId>) -> Param {
+    pub fn new(name: NameId, annotation: Option<TyExprId>) -> Param {
         Param {
             local: Local::new(name, annotation),
         }
@@ -274,12 +273,8 @@ impl Param {
         &self.local
     }
 
-    pub fn name(&self) -> &Name {
+    pub fn name(&self) -> NameId {
         self.local().name()
-    }
-
-    pub fn name_str(&self) -> &str {
-        self.name().as_str()
     }
 
     pub fn annotation(&self) -> Option<TyExprId> {
@@ -388,7 +383,7 @@ impl Arguments {
         self.len() == 0
     }
 
-    pub fn iter(&self) -> ArgumentsIter {
+    pub fn iter(&self) -> ArgumentsIter<'_> {
         ArgumentsIter {
             args: self,
             start: 0,
@@ -564,138 +559,10 @@ impl ExactSizeIterator for ArgumentsIter<'_> {
     }
 }
 
-impl Operands<AstNodeId> for Expr {
-    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
-        match self {
-            Expr::Nil(nil_expr) => nil_expr.for_each_operand(f),
-            Expr::Number(number_expr) => number_expr.for_each_operand(f),
-            Expr::String(string_expr) => string_expr.for_each_operand(f),
-            Expr::Boolean(boolean_expr) => boolean_expr.for_each_operand(f),
-            Expr::Ident(ident_expr) => ident_expr.for_each_operand(f),
-            Expr::Field(field_expr) => field_expr.for_each_operand(f),
-            Expr::Subscript(subscript_expr) => subscript_expr.for_each_operand(f),
-            Expr::Group(group_expr) => group_expr.for_each_operand(f),
-            Expr::Varargs(varargs_expr) => varargs_expr.for_each_operand(f),
-            Expr::Call(call_expr) => call_expr.for_each_operand(f),
-            Expr::Function(function_expr) => function_expr.for_each_operand(f),
-            Expr::Unary(unary_expr) => unary_expr.for_each_operand(f),
-            Expr::Binary(binary_expr) => binary_expr.for_each_operand(f),
-        }
-    }
-}
-
-impl Operands<AstNodeId> for NilExpr {
-    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
-}
-
-impl Operands<AstNodeId> for BooleanExpr {
-    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
-}
-
-impl Operands<AstNodeId> for NumberExpr {
-    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
-}
-
-impl Operands<AstNodeId> for StringExpr {
-    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
-}
-
-impl Operands<AstNodeId> for IdentExpr {
-    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
-}
-
-impl Operands<AstNodeId> for FieldExpr {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.expr().into());
-    }
-}
-
-impl Operands<AstNodeId> for SubscriptExpr {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.expr().into());
-        f(self.index().into());
-    }
-}
-
-impl Operands<AstNodeId> for GroupExpr {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.expr().into());
-    }
-}
-
-impl Operands<AstNodeId> for VarargsExpr {
-    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
-}
-
-impl Operands<AstNodeId> for CallExpr {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.function().into());
-
-        for arg in self.arguments() {
-            f(arg.into());
-        }
-    }
-}
-
-impl Operands<AstNodeId> for Param {
-    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
-        self.local().for_each_operand(f);
-    }
-}
-
-impl Operands<AstNodeId> for ParamPack {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        if let Some(annotation) = self.annotation() {
-            f(annotation.into());
-        }
-    }
-}
-
-impl Operands<AstNodeId> for ParamKind<'_> {
-    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
-        match self {
-            ParamKind::Param(param) => param.for_each_operand(f),
-            ParamKind::ParamPack(param_pack) => param_pack.for_each_operand(f),
-        }
-    }
-}
-
-impl Operands<AstNodeId> for Parameters {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        for param in self {
-            param.for_each_operand(&mut f);
-        }
-    }
-}
-
-impl Operands<AstNodeId> for FunctionExpr {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        self.parameters().for_each_operand(&mut f);
-
-        if let Some(id) = self.return_annotation() {
-            f(id.into());
-        }
-
-        self.body().for_each_operand(f);
-    }
-}
-
-impl Operands<AstNodeId> for UnaryExpr {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.expr().into());
-    }
-}
-
-impl Operands<AstNodeId> for BinaryExpr {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.lhs().into());
-        f(self.rhs().into());
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::ast::AstArena;
+    use crate::ast::name::Name;
     use crate::ast::ty_pack::{TyPackExpr, TyPackExprList};
 
     use super::*;
@@ -707,9 +574,9 @@ mod tests {
             ast_arena.alloc_ty_pack_expr(TyPackExpr::List(TyPackExprList::new(Vec::new(), None)));
 
         let params = [
-            Param::new("x", None),
-            Param::new("y", None),
-            Param::new("z", None),
+            Param::new(ast_arena.alloc_name(Name::new("x")), None),
+            Param::new(ast_arena.alloc_name(Name::new("y")), None),
+            Param::new(ast_arena.alloc_name(Name::new("z")), None),
         ];
 
         test(&[], None);

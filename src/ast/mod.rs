@@ -4,18 +4,18 @@ pub mod name;
 pub mod stmt;
 pub mod ty_expr;
 pub mod ty_pack;
-pub mod visitor;
 
 use std::ops;
 
 use crate::ast::expr::{Expr, ExprArena, ExprId};
+use crate::ast::name::{Name, NameArena, NameId};
 use crate::ast::stmt::{Stmt, StmtArena, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprArena, TyExprId};
 use crate::ast::ty_pack::{TyPackExpr, TyPackExprArena, TyPackExprId};
-use crate::operands::Operands;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct AstArena {
+    names: NameArena,
     exprs: ExprArena,
     stmts: StmtArena,
     ty_exprs: TyExprArena,
@@ -30,25 +30,6 @@ pub enum AstNodeId {
     TyPackExprId(TyPackExprId),
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum AstNode {
-    Expr(Expr),
-    Stmt(Stmt),
-    TyExpr(TyExpr),
-    TyPackExpr(TyPackExpr),
-}
-
-impl AstNode {
-    pub fn as_ref(&self) -> AstNodeRef<'_> {
-        match self {
-            AstNode::Expr(expr) => AstNodeRef::Expr(expr),
-            AstNode::Stmt(stmt) => AstNodeRef::Stmt(stmt),
-            AstNode::TyExpr(ty_expr) => AstNodeRef::TyExpr(ty_expr),
-            AstNode::TyPackExpr(ty_pack_expr) => AstNodeRef::TyPackExpr(ty_pack_expr),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum AstNodeRef<'a> {
     Expr(&'a Expr),
@@ -60,6 +41,7 @@ pub enum AstNodeRef<'a> {
 impl AstArena {
     pub fn new() -> AstArena {
         AstArena {
+            names: NameArena::new(),
             exprs: ExprArena::new(),
             stmts: StmtArena::new(),
             ty_exprs: TyExprArena::new(),
@@ -67,13 +49,8 @@ impl AstArena {
         }
     }
 
-    pub fn alloc(&mut self, ast_node: AstNode) -> AstNodeId {
-        match ast_node {
-            AstNode::Expr(expr) => self.alloc_expr(expr).into(),
-            AstNode::Stmt(stmt) => self.alloc_stmt(stmt).into(),
-            AstNode::TyExpr(ty_expr) => self.alloc_ty_expr(ty_expr).into(),
-            AstNode::TyPackExpr(ty_pack_expr) => self.alloc_ty_pack_expr(ty_pack_expr).into(),
-        }
+    pub fn alloc_name(&mut self, name: Name) -> NameId {
+        self.names.alloc(name)
     }
 
     pub fn alloc_expr(&mut self, expr: Expr) -> ExprId {
@@ -99,6 +76,10 @@ impl AstArena {
             AstNodeId::TyExprId(id) => self.get_ty_expr(id).map(From::from),
             AstNodeId::TyPackExprId(id) => self.get_ty_pack_expr(id).map(From::from),
         }
+    }
+
+    pub fn get_name(&self, name_id: NameId) -> Option<&Name> {
+        self.names.get(name_id)
     }
 
     pub fn get_expr(&self, expr_id: ExprId) -> Option<&Expr> {
@@ -144,6 +125,14 @@ impl AstArena {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+impl ops::Index<NameId> for AstArena {
+    type Output = Name;
+
+    fn index(&self, name_id: NameId) -> &Self::Output {
+        &self.names[name_id]
     }
 }
 
@@ -224,22 +213,5 @@ impl<'a> From<&'a TyExpr> for AstNodeRef<'a> {
 impl<'a> From<&'a TyPackExpr> for AstNodeRef<'a> {
     fn from(value: &'a TyPackExpr) -> Self {
         AstNodeRef::TyPackExpr(value)
-    }
-}
-
-impl Operands<AstNodeId> for AstNode {
-    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
-        self.as_ref().for_each_operand(f);
-    }
-}
-
-impl Operands<AstNodeId> for AstNodeRef<'_> {
-    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
-        match self {
-            AstNodeRef::Expr(expr) => expr.for_each_operand(f),
-            AstNodeRef::Stmt(stmt) => stmt.for_each_operand(f),
-            AstNodeRef::TyExpr(ty_expr) => ty_expr.for_each_operand(f),
-            AstNodeRef::TyPackExpr(ty_pack_expr) => ty_pack_expr.for_each_operand(f),
-        }
     }
 }

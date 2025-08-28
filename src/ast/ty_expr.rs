@@ -2,9 +2,6 @@ use std::ops;
 
 use id_arena::{Arena, Id};
 
-use crate::ast::AstNodeId;
-use crate::operands::Operands;
-
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TyExprArena {
     ty_exprs: Arena<TyExpr>,
@@ -63,16 +60,4 @@ impl TyExprIdent {
     pub fn new(ident: impl Into<String>) -> TyExprIdent {
         TyExprIdent(ident.into())
     }
-}
-
-impl Operands<AstNodeId> for TyExpr {
-    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
-        match self {
-            TyExpr::Ident(ty_expr_ident) => ty_expr_ident.for_each_operand(f),
-        }
-    }
-}
-
-impl Operands<AstNodeId> for TyExprIdent {
-    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
 }

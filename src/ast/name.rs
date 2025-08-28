@@ -1,13 +1,61 @@
-use crate::ast::AstNodeId;
+use std::ops;
+
+use id_arena::{Arena, Id};
+
 use crate::ast::ty_expr::TyExprId;
-use crate::operands::Operands;
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct NameArena {
+    names: Arena<Name>,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NameId(Id<Name>);
+
+impl NameArena {
+    pub fn new() -> NameArena {
+        NameArena {
+            names: Arena::new(),
+        }
+    }
+
+    pub fn alloc(&mut self, name: Name) -> NameId {
+        NameId(self.names.alloc(name))
+    }
+
+    pub fn get(&self, NameId(id): NameId) -> Option<&Name> {
+        self.names.get(id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.names.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl NameId {
+    pub fn index(&self) -> usize {
+        self.0.index()
+    }
+}
+
+impl ops::Index<NameId> for NameArena {
+    type Output = Name;
+
+    fn index(&self, NameId(id): NameId) -> &Self::Output {
+        &self.names[id]
+    }
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Name(String);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Local {
-    name: Name,
+    name: NameId,
     annotation: Option<TyExprId>,
 }
 
@@ -34,26 +82,15 @@ impl AsRef<str> for Name {
 }
 
 impl Local {
-    pub fn new(name: impl Into<String>, annotation: Option<TyExprId>) -> Local {
-        Local {
-            name: Name(name.into()),
-            annotation,
-        }
+    pub fn new(name: NameId, annotation: Option<TyExprId>) -> Local {
+        Local { name, annotation }
     }
 
-    pub fn name(&self) -> &Name {
-        &self.name
+    pub fn name(&self) -> NameId {
+        self.name
     }
 
     pub fn annotation(&self) -> Option<TyExprId> {
         self.annotation
-    }
-}
-
-impl Operands<AstNodeId> for Local {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        if let Some(annotation) = self.annotation() {
-            f(annotation.into());
-        }
     }
 }

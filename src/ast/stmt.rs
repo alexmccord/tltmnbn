@@ -2,11 +2,9 @@ use std::ops;
 
 use id_arena::{Arena, Id};
 
-use crate::ast::AstNodeId;
 use crate::ast::expr::{BinaryOp, ExprId, FunctionExpr, Parameters};
-use crate::ast::name::{Local, Name};
+use crate::ast::name::{Local, NameId};
 use crate::ast::ty_pack::TyPackExprId;
-use crate::operands::Operands;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct StmtArena {
@@ -154,7 +152,7 @@ pub struct FunctionStmt {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct LocalFunctionStmt {
-    name: Name,
+    name: NameId,
     function: FunctionExpr,
 }
 
@@ -367,15 +365,12 @@ impl FunctionStmt {
 }
 
 impl LocalFunctionStmt {
-    pub fn new(name: impl Into<Name>, function: FunctionExpr) -> LocalFunctionStmt {
-        LocalFunctionStmt {
-            name: name.into(),
-            function,
-        }
+    pub fn new(name: NameId, function: FunctionExpr) -> LocalFunctionStmt {
+        LocalFunctionStmt { name, function }
     }
 
-    pub fn name(&self) -> &Name {
-        &self.name
+    pub fn name(&self) -> NameId {
+        self.name
     }
 
     pub fn function(&self) -> &FunctionExpr {
@@ -392,152 +387,5 @@ impl LocalFunctionStmt {
 
     pub fn body(&self) -> &BlockStmt {
         self.function().body()
-    }
-}
-
-impl Operands<AstNodeId> for Stmt {
-    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
-        match self {
-            Stmt::Block(block_stmt) => block_stmt.for_each_operand(f),
-            Stmt::Branch(branch_stmt) => branch_stmt.for_each_operand(f),
-            Stmt::While(while_stmt) => while_stmt.for_each_operand(f),
-            Stmt::Repeat(repeat_stmt) => repeat_stmt.for_each_operand(f),
-            Stmt::ForRange(for_range_stmt) => for_range_stmt.for_each_operand(f),
-            Stmt::ForIter(for_iter_stmt) => for_iter_stmt.for_each_operand(f),
-            Stmt::Break(break_stmt) => break_stmt.for_each_operand(f),
-            Stmt::Continue(continue_stmt) => continue_stmt.for_each_operand(f),
-            Stmt::Return(return_stmt) => return_stmt.for_each_operand(f),
-            Stmt::Expr(expr_stmt) => expr_stmt.for_each_operand(f),
-            Stmt::Local(local_stmt) => local_stmt.for_each_operand(f),
-            Stmt::Assign(assign_stmt) => assign_stmt.for_each_operand(f),
-            Stmt::CompoundAssign(compound_assign_stmt) => compound_assign_stmt.for_each_operand(f),
-            Stmt::Function(function_stmt) => function_stmt.for_each_operand(f),
-            Stmt::LocalFunction(local_function_stmt) => local_function_stmt.for_each_operand(f),
-        }
-    }
-}
-
-impl Operands<AstNodeId> for BlockStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        for &stmt in self.stmts() {
-            f(stmt.into())
-        }
-    }
-}
-
-impl Operands<AstNodeId> for IfStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.condition().into());
-        self.then_body().for_each_operand(&mut f);
-
-        if let Some(else_body) = self.else_body() {
-            else_body.for_each_operand(f);
-        }
-    }
-}
-
-impl Operands<AstNodeId> for WhileStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.condition().into());
-        self.body().for_each_operand(f);
-    }
-}
-
-impl Operands<AstNodeId> for RepeatStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        self.body().for_each_operand(&mut f);
-        f(self.condition().into());
-    }
-}
-
-impl Operands<AstNodeId> for ForRangeStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        self.var().for_each_operand(&mut f);
-
-        f(self.from().into());
-        f(self.to().into());
-        if let Some(step) = self.step() {
-            f(step.into());
-        }
-
-        self.body().for_each_operand(f);
-    }
-}
-
-impl Operands<AstNodeId> for ForIterStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        for var in self.vars() {
-            var.for_each_operand(&mut f);
-        }
-
-        for &expr in self.exprs() {
-            f(expr.into());
-        }
-    }
-}
-
-impl Operands<AstNodeId> for BreakStmt {
-    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
-}
-
-impl Operands<AstNodeId> for ContinueStmt {
-    fn for_each_operand(&self, _: impl FnMut(AstNodeId)) {}
-}
-
-impl Operands<AstNodeId> for ReturnStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        for &expr in self.exprs() {
-            f(expr.into());
-        }
-    }
-}
-
-impl Operands<AstNodeId> for ExprStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.expr().into());
-    }
-}
-
-impl Operands<AstNodeId> for LocalStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        for local in self.locals() {
-            local.for_each_operand(&mut f);
-        }
-
-        for &expr in self.exprs() {
-            f(expr.into());
-        }
-    }
-}
-
-impl Operands<AstNodeId> for AssignStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        for &lvalue in self.lvalues() {
-            f(lvalue.into());
-        }
-
-        for &rvalue in self.rvalues() {
-            f(rvalue.into());
-        }
-    }
-}
-
-impl Operands<AstNodeId> for CompoundAssignStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.lvalue().into());
-        f(self.rvalue().into());
-    }
-}
-
-impl Operands<AstNodeId> for FunctionStmt {
-    fn for_each_operand(&self, mut f: impl FnMut(AstNodeId)) {
-        f(self.name().into());
-        self.function().for_each_operand(f);
-    }
-}
-
-impl Operands<AstNodeId> for LocalFunctionStmt {
-    fn for_each_operand(&self, f: impl FnMut(AstNodeId)) {
-        self.function().for_each_operand(f);
     }
 }

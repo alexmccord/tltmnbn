@@ -1,14 +1,14 @@
-use crate::elab::lexical::LexicalScopes;
+use crate::elab::renamer::RenamedAst;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Context {
-    lexical_scopes: LexicalScopes,
+    renamed_ast: RenamedAst,
 }
 
 impl Context {
     pub fn new() -> Context {
         Context {
-            lexical_scopes: LexicalScopes::new(),
+            renamed_ast: RenamedAst::new(),
         }
     }
 }
