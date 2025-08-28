@@ -1,16 +1,17 @@
+mod scope;
+
 use std::collections::HashMap;
-use std::mem;
-use std::ops;
 
 use crate::ast::expr::{Expr, ExprId, FunctionExpr, ParamKind};
 use crate::ast::name::NameId;
 use crate::ast::stmt::{BlockStmt, Stmt, StmtId};
 use crate::ast::{AstArena, AstNodeId};
+use crate::elab::renamer::scope::{LexicalScopes, Parents, ScopeId};
 use crate::interner::{StrId, StringInterner};
 
 pub fn rename(interner: &mut StringInterner, ast_arena: &AstArena, root: &BlockStmt) -> RenamedAst {
-    let mut renamed_ast = RenamedAst::new();
-    let root_scope = renamed_ast.new_scope(None);
+    let mut renamed_ast = RenamedAst::new(ast_arena);
+    let root_scope = renamed_ast.lexical_scopes.new_scope(None);
 
     let mut renamer = Renamer::new(renamed_ast, interner, ast_arena);
     renamer.push_block(root_scope, root);
@@ -18,151 +19,53 @@ pub fn rename(interner: &mut StringInterner, ast_arena: &AstArena, root: &BlockS
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ScopeId(usize);
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Scope {
-    parent: Option<ScopeId>,
-    locals: HashMap<StrId, LocalId>,
-}
-
-impl Scope {
-    fn parent(&self) -> Option<ScopeId> {
-        self.parent
-    }
-
-    fn new(parent: Option<ScopeId>) -> Scope {
-        Scope {
-            parent,
-            locals: HashMap::new(),
-        }
-    }
-
-    fn insert(&mut self, name: StrId, local: LocalId) {
-        self.locals.insert(name, local);
-    }
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LocalId(usize);
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone)]
 pub struct RenamedAst {
-    scopes: Vec<Scope>,
-    exprs: Vec<ScopeId>,
-    stmts: Vec<ScopeId>,
-    ty_exprs: Vec<ScopeId>,
-    ty_pack_exprs: Vec<ScopeId>,
+    lexical_scopes: LexicalScopes,
     defs: HashMap<NameId, LocalId>,
     uses: HashMap<ExprId, LocalId>,
 }
 
 impl RenamedAst {
-    pub fn new() -> RenamedAst {
+    pub fn new(ast_arena: &AstArena) -> RenamedAst {
         RenamedAst {
-            scopes: Vec::new(),
-            exprs: Vec::new(),
-            stmts: Vec::new(),
-            ty_exprs: Vec::new(),
-            ty_pack_exprs: Vec::new(),
+            lexical_scopes: LexicalScopes::new(ast_arena),
             defs: HashMap::new(),
             uses: HashMap::new(),
         }
     }
 
-    pub fn parents(&self, scope_id: ScopeId) -> Parents<'_> {
-        Parents {
-            renamed_ast: self,
-            scope_id: Some(scope_id),
-        }
+    pub fn get_lexical_scopes(&self) -> &LexicalScopes {
+        &self.lexical_scopes
     }
 
     pub fn lookup(&self, scope_id: ScopeId, str_id: StrId) -> Option<LocalId> {
-        for scope in self.parents(scope_id) {
-            if let Some(&local_id) = scope.locals.get(&str_id) {
-                return Some(local_id);
-            }
-        }
-
-        None
+        self.lexical_scopes.lookup(scope_id, str_id)
     }
 
-    pub fn get_local_use(&self, expr_id: ExprId) -> Option<LocalId> {
-        self.uses.get(&expr_id).cloned()
+    pub fn parents(&self, scope_id: ScopeId) -> Parents<'_> {
+        self.lexical_scopes.parents(scope_id)
     }
 
     pub fn get_local_def(&self, name: NameId) -> Option<LocalId> {
         self.defs.get(&name).cloned()
     }
 
-    fn new_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
-        let scope_id = ScopeId(self.scopes.len());
-        self.scopes.push(Scope::new(parent));
-        scope_id
+    pub fn get_local_use(&self, expr_id: ExprId) -> Option<LocalId> {
+        self.uses.get(&expr_id).cloned()
     }
-}
 
-impl ops::Index<ScopeId> for RenamedAst {
-    type Output = Scope;
-
-    fn index(&self, ScopeId(index): ScopeId) -> &Self::Output {
-        &self.scopes[index]
+    fn insert_def(&mut self, scope_id: ScopeId, name_id: NameId, str_id: StrId, local_id: LocalId) {
+        self.defs.insert(name_id, local_id);
+        self.lexical_scopes[scope_id].insert(str_id, local_id);
     }
-}
 
-impl ops::IndexMut<ScopeId> for RenamedAst {
-    fn index_mut(&mut self, ScopeId(index): ScopeId) -> &mut Self::Output {
-        &mut self.scopes[index]
-    }
-}
-
-impl<T> ops::Index<T> for RenamedAst
-where
-    T: Into<AstNodeId>,
-{
-    type Output = Scope;
-
-    fn index(&self, id: T) -> &Self::Output {
-        let scope_id = match id.into() {
-            AstNodeId::ExprId(id) => self.exprs[id.index()],
-            AstNodeId::StmtId(id) => self.stmts[id.index()],
-            AstNodeId::TyExprId(id) => self.ty_exprs[id.index()],
-            AstNodeId::TyPackExprId(id) => self.ty_pack_exprs[id.index()],
-        };
-
-        &self[scope_id]
-    }
-}
-
-impl<T> ops::IndexMut<T> for RenamedAst
-where
-    T: Into<AstNodeId>,
-{
-    fn index_mut(&mut self, id: T) -> &mut Self::Output {
-        let scope_id = match id.into() {
-            AstNodeId::ExprId(id) => self.exprs[id.index()],
-            AstNodeId::StmtId(id) => self.stmts[id.index()],
-            AstNodeId::TyExprId(id) => self.ty_exprs[id.index()],
-            AstNodeId::TyPackExprId(id) => self.ty_pack_exprs[id.index()],
-        };
-
-        &mut self[scope_id]
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Parents<'a> {
-    renamed_ast: &'a RenamedAst,
-    scope_id: Option<ScopeId>,
-}
-
-impl<'a> Iterator for Parents<'a> {
-    type Item = &'a Scope;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let scope = &self.renamed_ast[self.scope_id?];
-        self.scope_id = scope.parent();
-        Some(scope)
+    fn insert_use(&mut self, scope_id: ScopeId, str_id: StrId, expr_id: ExprId) {
+        if let Some(local_id) = self.lookup(scope_id, str_id) {
+            self.uses.insert(expr_id, local_id);
+        }
     }
 }
 
@@ -212,29 +115,20 @@ impl<'ast> Renamer<'ast> {
     }
 
     fn dispatch_visit(&mut self, scope_id: ScopeId, node_id: AstNodeId) {
+        self.renamed.lexical_scopes.bind_scope(node_id, scope_id);
+
         match node_id {
-            AstNodeId::ExprId(expr_id) => {
-                self.renamed.exprs.push(scope_id);
-                self.visit_expr(scope_id, expr_id);
-            }
-            AstNodeId::StmtId(stmt_id) => {
-                self.renamed.stmts.push(scope_id);
-                self.visit_stmt(scope_id, stmt_id);
-            }
-            AstNodeId::TyExprId(ty_expr_id) => {
-                self.renamed.ty_exprs.push(scope_id);
-            }
-            AstNodeId::TyPackExprId(ty_pack_expr_id) => {
-                self.renamed.ty_pack_exprs.push(scope_id);
-            }
+            AstNodeId::ExprId(expr_id) => self.visit_expr(scope_id, expr_id),
+            AstNodeId::StmtId(stmt_id) => self.visit_stmt(scope_id, stmt_id),
+            AstNodeId::TyExprId(_) => todo!(),
+            AstNodeId::TyPackExprId(_) => todo!(),
         }
     }
 
     fn dispatch_def(&mut self, scope_id: ScopeId, name_id: NameId, local_id: LocalId) {
-        let name = &self.ast_arena[name_id];
-        let str_id = self.interner.intern(name.as_str());
+        let str_id = self.interner.intern(self.ast_arena[name_id].as_str());
         self.renamed.defs.insert(name_id, local_id);
-        self.renamed[scope_id].insert(str_id, local_id);
+        self.renamed.lexical_scopes[scope_id].insert(str_id, local_id);
     }
 
     fn dispatch_use(&mut self, scope_id: ScopeId, str: &'ast str, expr_id: ExprId) {
@@ -244,12 +138,13 @@ impl<'ast> Renamer<'ast> {
     }
 
     fn new_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
-        self.renamed.new_scope(parent)
+        self.renamed.lexical_scopes.new_scope(parent)
     }
 
     fn new_local(&mut self) -> LocalId {
-        let next_local_id = LocalId(self.next_local_id.0 + 1);
-        mem::replace(&mut self.next_local_id, next_local_id)
+        let next_local_id = self.next_local_id;
+        self.next_local_id.0 += 1;
+        next_local_id
     }
 
     fn push_block(&mut self, scope_id: ScopeId, block: &BlockStmt) {

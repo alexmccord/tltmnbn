@@ -13,7 +13,7 @@ use crate::ast::stmt::{Stmt, StmtArena, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprArena, TyExprId};
 use crate::ast::ty_pack::{TyPackExpr, TyPackExprArena, TyPackExprId};
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AstArena {
     names: NameArena,
     exprs: ExprArena,
