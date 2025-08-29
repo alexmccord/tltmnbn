@@ -2,6 +2,8 @@ use std::ops;
 
 use id_arena::{Arena, Id};
 
+use crate::ast::expr::ExprId;
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TyExprArena {
     ty_exprs: Arena<TyExpr>,
@@ -50,20 +52,40 @@ impl ops::Index<TyExprId> for TyExprArena {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TyExpr {
-    Ident(TyExprIdent),
+    Ident(IdentTyExpr),
+    Typeof(TypeofTyExpr),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct TyExprIdent(String);
+pub struct IdentTyExpr(String);
 
-impl TyExprIdent {
-    pub fn new(ident: impl Into<String>) -> TyExprIdent {
-        TyExprIdent(ident.into())
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TypeofTyExpr(ExprId);
+
+impl IdentTyExpr {
+    pub fn new(ident: impl Into<String>) -> IdentTyExpr {
+        IdentTyExpr(ident.into())
     }
 }
 
-impl From<TyExprIdent> for TyExpr {
-    fn from(value: TyExprIdent) -> Self {
+impl TypeofTyExpr {
+    pub fn new(expr: ExprId) -> TypeofTyExpr {
+        TypeofTyExpr(expr)
+    }
+
+    pub fn expr(&self) -> ExprId {
+        self.0
+    }
+}
+
+impl From<IdentTyExpr> for TyExpr {
+    fn from(value: IdentTyExpr) -> Self {
         TyExpr::Ident(value)
+    }
+}
+
+impl From<TypeofTyExpr> for TyExpr {
+    fn from(value: TypeofTyExpr) -> Self {
+        TyExpr::Typeof(value)
     }
 }

@@ -225,12 +225,24 @@ impl AstAntecedentGraphBuilder {
             Stmt::LocalFunction(local_function_stmt) => {
                 self.visit_function(local_function_stmt.function(), id);
             }
+            Stmt::TypeAlias(type_alias_stmt) => {
+                for param in type_alias_stmt.ty_parameters().params() {
+                    self.try_add_edge(param.default_argument(), id);
+                }
+
+                for variadic_param in type_alias_stmt.ty_parameters().variadic_params() {
+                    self.try_add_edge(variadic_param.default_argument(), id);
+                }
+
+                self.add_edge(type_alias_stmt.ty_expr(), id);
+            }
         }
     }
 
     fn visit_ty_expr(&mut self, ast_arena: &AstArena, id: TyExprId) {
         match &ast_arena[id] {
             TyExpr::Ident(_) => (),
+            TyExpr::Typeof(typeof_ty_expr) => self.add_edge(typeof_ty_expr.expr(), id),
         }
     }
 

@@ -4,6 +4,7 @@ use id_arena::{Arena, Id};
 
 use crate::ast::expr::{BinaryOp, ExprId, FunctionExpr, Parameters};
 use crate::ast::name::{Local, NameId};
+use crate::ast::ty_expr::TyExprId;
 use crate::ast::ty_pack::TyPackExprId;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -69,6 +70,7 @@ pub enum Stmt {
     CompoundAssign(CompoundAssignStmt),
     Function(FunctionStmt),
     LocalFunction(LocalFunctionStmt),
+    TypeAlias(TypeAliasStmt),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -154,6 +156,31 @@ pub struct FunctionStmt {
 pub struct LocalFunctionStmt {
     name: NameId,
     function: FunctionExpr,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TyParam {
+    name: NameId,
+    default_argument: Option<TyExprId>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct VariadicTyParam {
+    name: NameId,
+    default_argument: Option<TyPackExprId>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TyParameters {
+    params: Vec<TyParam>,
+    variadic_params: Vec<VariadicTyParam>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TypeAliasStmt {
+    name: NameId,
+    ty_parameters: TyParameters,
+    ty_expr: TyExprId,
 }
 
 impl BlockStmt {
@@ -390,6 +417,87 @@ impl LocalFunctionStmt {
     }
 }
 
+impl TyParam {
+    pub fn new(name: NameId, default_argument: Option<TyExprId>) -> TyParam {
+        TyParam {
+            name,
+            default_argument,
+        }
+    }
+
+    pub fn name(&self) -> NameId {
+        self.name
+    }
+
+    pub fn default_argument(&self) -> Option<TyExprId> {
+        self.default_argument
+    }
+}
+
+impl VariadicTyParam {
+    pub fn new(name: NameId, default_argument: Option<TyPackExprId>) -> VariadicTyParam {
+        VariadicTyParam {
+            name,
+            default_argument,
+        }
+    }
+
+    pub fn name(&self) -> NameId {
+        self.name
+    }
+
+    pub fn default_argument(&self) -> Option<TyPackExprId> {
+        self.default_argument
+    }
+}
+
+impl TyParameters {
+    pub fn new(params: Vec<TyParam>, variadic_params: Vec<VariadicTyParam>) -> TyParameters {
+        TyParameters {
+            params,
+            variadic_params,
+        }
+    }
+
+    pub fn params(&self) -> &[TyParam] {
+        &self.params
+    }
+
+    pub fn variadic_params(&self) -> &[VariadicTyParam] {
+        &self.variadic_params
+    }
+
+    pub fn len(&self) -> usize {
+        self.params.len() + self.variadic_params.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl TypeAliasStmt {
+    pub fn new(name: NameId, ty_parameters: TyParameters, ty_expr: TyExprId) -> TypeAliasStmt {
+        TypeAliasStmt {
+            name,
+            ty_parameters,
+            ty_expr,
+        }
+    }
+
+    pub fn name(&self) -> NameId {
+        self.name
+    }
+
+    pub fn ty_parameters(&self) -> &TyParameters {
+        &self.ty_parameters
+    }
+
+    pub fn ty_expr(&self) -> TyExprId {
+        self.ty_expr
+    }
+}
+
 impl From<BlockStmt> for Stmt {
     fn from(value: BlockStmt) -> Self {
         Stmt::Block(value)
@@ -477,5 +585,11 @@ impl From<FunctionStmt> for Stmt {
 impl From<LocalFunctionStmt> for Stmt {
     fn from(value: LocalFunctionStmt) -> Self {
         Stmt::LocalFunction(value)
+    }
+}
+
+impl From<TypeAliasStmt> for Stmt {
+    fn from(value: TypeAliasStmt) -> Self {
+        Stmt::TypeAlias(value)
     }
 }
