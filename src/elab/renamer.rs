@@ -1,21 +1,19 @@
-mod scope;
-
 use std::collections::HashMap;
 
 use crate::ast::expr::{Expr, ExprId, FunctionExpr, ParamKind};
 use crate::ast::name::NameId;
 use crate::ast::stmt::{BlockStmt, Stmt, StmtId};
+use crate::ast::ty_expr::{TyExpr, TyExprId};
+use crate::ast::ty_pack::{TyPackExpr, TyPackExprId};
 use crate::ast::{AstArena, AstNodeId};
-use crate::elab::renamer::scope::{LexicalScopes, Parents, ScopeId};
-use crate::interner::{StrId, StringInterner};
+use crate::elab::SourceModule;
+use crate::elab::scope::{LexicalScopes, ScopeId};
+use crate::interner::StringInterner;
 
-pub fn rename(interner: &mut StringInterner, ast_arena: &AstArena, root: &BlockStmt) -> RenamedAst {
-    let mut renamed_ast = RenamedAst::new(ast_arena);
-    let root_scope = renamed_ast.lexical_scopes.new_scope(None);
-
-    let mut renamer = Renamer::new(renamed_ast, interner, ast_arena);
-    renamer.push_block(root_scope, root);
-    renamer.build()
+pub fn rename(source_module: &mut SourceModule) -> &RenamedAst {
+    let renamer = Renamer::new(source_module);
+    source_module.renamed_ast = renamer.build();
+    &source_module.renamed_ast
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -23,30 +21,16 @@ pub struct LocalId(usize);
 
 #[derive(Debug, Default, Clone)]
 pub struct RenamedAst {
-    lexical_scopes: LexicalScopes,
     defs: HashMap<NameId, LocalId>,
     uses: HashMap<ExprId, LocalId>,
 }
 
 impl RenamedAst {
-    pub fn new(ast_arena: &AstArena) -> RenamedAst {
+    pub fn new() -> RenamedAst {
         RenamedAst {
-            lexical_scopes: LexicalScopes::new(ast_arena),
             defs: HashMap::new(),
             uses: HashMap::new(),
         }
-    }
-
-    pub fn get_lexical_scopes(&self) -> &LexicalScopes {
-        &self.lexical_scopes
-    }
-
-    pub fn lookup(&self, scope_id: ScopeId, str_id: StrId) -> Option<LocalId> {
-        self.lexical_scopes.lookup(scope_id, str_id)
-    }
-
-    pub fn parents(&self, scope_id: ScopeId) -> Parents<'_> {
-        self.lexical_scopes.parents(scope_id)
     }
 
     pub fn get_local_def(&self, name: NameId) -> Option<LocalId> {
@@ -56,17 +40,15 @@ impl RenamedAst {
     pub fn get_local_use(&self, expr_id: ExprId) -> Option<LocalId> {
         self.uses.get(&expr_id).cloned()
     }
+}
 
-    fn insert_def(&mut self, scope_id: ScopeId, name_id: NameId, str_id: StrId, local_id: LocalId) {
-        self.defs.insert(name_id, local_id);
-        self.lexical_scopes[scope_id].insert(str_id, local_id);
-    }
-
-    fn insert_use(&mut self, scope_id: ScopeId, str_id: StrId, expr_id: ExprId) {
-        if let Some(local_id) = self.lookup(scope_id, str_id) {
-            self.uses.insert(expr_id, local_id);
-        }
-    }
+struct Renamer<'ast> {
+    interner: &'ast mut StringInterner,
+    ast_arena: &'ast AstArena,
+    lexical_scopes: &'ast mut LexicalScopes,
+    renamed_ast: RenamedAst,
+    next_local_id: LocalId,
+    stack: Vec<RenameOp<'ast>>,
 }
 
 enum RenameOp<'ast> {
@@ -75,26 +57,22 @@ enum RenameOp<'ast> {
     Use(ScopeId, &'ast str, ExprId),
 }
 
-struct Renamer<'ast> {
-    renamed: RenamedAst,
-    ast_arena: &'ast AstArena,
-    interner: &'ast mut StringInterner,
-    stack: Vec<RenameOp<'ast>>,
-    next_local_id: LocalId,
-}
-
 impl<'ast> Renamer<'ast> {
-    fn new(
-        renamed: RenamedAst,
-        interner: &'ast mut StringInterner,
-        ast_arena: &'ast AstArena,
-    ) -> Renamer<'ast> {
+    fn new(source_module: &'ast mut SourceModule) -> Renamer<'ast> {
+        let root_scope = source_module.lexical_scopes.new_scope(None);
+
+        let mut stack = Vec::with_capacity(source_module.root.stmts().len());
+        for &stmt in source_module.root.stmts() {
+            stack.push(RenameOp::Node(root_scope, stmt.into()));
+        }
+
         Renamer {
-            renamed,
-            interner,
-            ast_arena,
-            stack: Vec::new(),
+            interner: &mut source_module.interner,
+            ast_arena: &source_module.ast_arena,
+            lexical_scopes: &mut source_module.lexical_scopes,
+            renamed_ast: RenamedAst::new(),
             next_local_id: LocalId(0),
+            stack,
         }
     }
 
@@ -103,42 +81,47 @@ impl<'ast> Renamer<'ast> {
             self.dispatch(op);
         }
 
-        self.renamed
+        self.renamed_ast
     }
 
     fn dispatch(&mut self, op: RenameOp<'ast>) {
         match op {
-            RenameOp::Node(scope_id, node_id) => self.dispatch_visit(scope_id, node_id),
+            RenameOp::Node(scope_id, node_id) => self.dispatch_node(scope_id, node_id),
             RenameOp::Def(scope_id, name, local_id) => self.dispatch_def(scope_id, name, local_id),
             RenameOp::Use(scope_id, str, expr_id) => self.dispatch_use(scope_id, str, expr_id),
         }
     }
 
-    fn dispatch_visit(&mut self, scope_id: ScopeId, node_id: AstNodeId) {
-        self.renamed.lexical_scopes.bind_scope(node_id, scope_id);
+    fn dispatch_node(&mut self, scope_id: ScopeId, node_id: AstNodeId) {
+        self.lexical_scopes.bind_scope(node_id, scope_id);
 
         match node_id {
             AstNodeId::ExprId(expr_id) => self.visit_expr(scope_id, expr_id),
             AstNodeId::StmtId(stmt_id) => self.visit_stmt(scope_id, stmt_id),
-            AstNodeId::TyExprId(_) => todo!(),
-            AstNodeId::TyPackExprId(_) => todo!(),
+            AstNodeId::TyExprId(ty_expr_id) => self.visit_ty_expr(scope_id, ty_expr_id),
+            AstNodeId::TyPackExprId(ty_pack_expr_id) => {
+                self.visit_ty_pack_expr(scope_id, ty_pack_expr_id)
+            }
         }
     }
 
     fn dispatch_def(&mut self, scope_id: ScopeId, name_id: NameId, local_id: LocalId) {
         let str_id = self.interner.intern(self.ast_arena[name_id].as_str());
-        self.renamed.defs.insert(name_id, local_id);
-        self.renamed.lexical_scopes[scope_id].insert(str_id, local_id);
+        self.renamed_ast.defs.insert(name_id, local_id);
+        self.lexical_scopes[scope_id].insert(str_id, local_id);
     }
 
     fn dispatch_use(&mut self, scope_id: ScopeId, str: &'ast str, expr_id: ExprId) {
-        if let Some(local_id) = self.renamed.lookup(scope_id, self.interner.intern(str)) {
-            self.renamed.uses.insert(expr_id, local_id);
+        if let Some(local_id) = self
+            .lexical_scopes
+            .lookup(scope_id, self.interner.intern(str))
+        {
+            self.renamed_ast.uses.insert(expr_id, local_id);
         }
     }
 
     fn new_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
-        self.renamed.lexical_scopes.new_scope(parent)
+        self.lexical_scopes.new_scope(parent)
     }
 
     fn new_local(&mut self) -> LocalId {
@@ -334,6 +317,60 @@ impl<'ast> Renamer<'ast> {
                 let local_id = self.new_local();
                 self.push_def(scope_id, local_function_stmt.name(), local_id);
             }
+            Stmt::TypeAlias(type_alias_stmt) => {
+                // For parity with Luau's type system, we will not rename type
+                // aliases in this pass, but we still have to traverse them
+                // because you can have `typeof(expr)` as a type annotation,
+                // and those expressions needs renaming as well.
+
+                let ty_parameters = type_alias_stmt.ty_parameters();
+
+                if type_alias_stmt.ty_parameters().is_empty() {
+                    self.push_node(scope_id, type_alias_stmt.ty_expr());
+                } else {
+                    let params_scope = self.new_scope(Some(scope_id));
+
+                    self.push_node(params_scope, type_alias_stmt.ty_expr());
+
+                    for variadic_param in ty_parameters.variadic_params().iter().rev() {
+                        if let Some(ty_pack_expr) = variadic_param.default_argument() {
+                            self.push_node(params_scope, ty_pack_expr);
+                        }
+                    }
+
+                    for params in ty_parameters.params().iter().rev() {
+                        if let Some(ty_expr) = params.default_argument() {
+                            self.push_node(params_scope, ty_expr);
+                        }
+                    }
+                };
+            }
+        }
+    }
+
+    fn visit_ty_expr(&mut self, scope_id: ScopeId, ty_expr_id: TyExprId) {
+        // For parity with Luau's type system, we will not rename type
+        // expressions in this pass, but we still have to traverse them because
+        // you can have `typeof(expr)` as a type annotation, and those
+        // expressions needs renaming as well.
+
+        match &self.ast_arena[ty_expr_id] {
+            TyExpr::Ident(_) => (),
+            TyExpr::Typeof(typeof_ty_expr) => self.push_node(scope_id, typeof_ty_expr.expr()),
+        }
+    }
+
+    fn visit_ty_pack_expr(&mut self, scope_id: ScopeId, ty_pack_expr_id: TyPackExprId) {
+        match &self.ast_arena[ty_pack_expr_id] {
+            TyPackExpr::List(ty_pack_expr_list) => {
+                if let Some(tail) = ty_pack_expr_list.tail() {
+                    self.push_node(scope_id, tail);
+                }
+
+                for &head in ty_pack_expr_list.head().iter().rev() {
+                    self.push_node(scope_id, head);
+                }
+            }
         }
     }
 
@@ -391,8 +428,8 @@ mod tests {
 
         let root = BlockStmt::new(vec![local_x_eq_7, local_x_eq_x]);
 
-        let mut interner = StringInterner::new();
-        let renamed_ast = rename(&mut interner, &ast_arena, &root);
+        let mut source_module = SourceModule::new(ast_arena, root);
+        let renamed_ast = rename(&mut source_module);
 
         assert_eq!(renamed_ast.get_local_def(name_x_1), Some(LocalId(0)));
         assert_eq!(renamed_ast.get_local_def(name_x_2), Some(LocalId(1)));
@@ -418,8 +455,8 @@ mod tests {
 
         let root = BlockStmt::new(vec![repeat_stmt]);
 
-        let mut interner = StringInterner::new();
-        let renamed_ast = rename(&mut interner, &ast_arena, &root);
+        let mut source_module = SourceModule::new(ast_arena, root);
+        let renamed_ast = rename(&mut source_module);
 
         assert_eq!(renamed_ast.get_local_def(done_name), Some(LocalId(0)));
         assert_eq!(renamed_ast.get_local_use(condition), Some(LocalId(0)));
@@ -448,8 +485,8 @@ mod tests {
 
         let root = BlockStmt::new(vec![function]);
 
-        let mut interner = StringInterner::new();
-        let renamed_ast = rename(&mut interner, &ast_arena, &root);
+        let mut source_module = SourceModule::new(ast_arena, root);
+        let renamed_ast = rename(&mut source_module);
 
         assert_eq!(renamed_ast.get_local_def(self_ref_name), Some(LocalId(0)));
         assert_eq!(renamed_ast.get_local_use(self_ref_expr), Some(LocalId(0)));
