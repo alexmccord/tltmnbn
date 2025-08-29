@@ -62,7 +62,7 @@ impl<'ast> Renamer<'ast> {
         let root_scope = source_module.lexical_scopes.new_scope(None);
 
         let mut stack = Vec::with_capacity(source_module.root.stmts().len());
-        for &stmt in source_module.root.stmts() {
+        for &stmt in source_module.root.stmts().iter().rev() {
             stack.push(RenameOp::Node(root_scope, stmt.into()));
         }
 
