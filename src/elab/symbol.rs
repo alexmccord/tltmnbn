@@ -35,7 +35,9 @@ impl AsRef<str> for Symbol {
 /// I only care about interning strings.
 ///
 /// Also, even though currently TLTMNBN is single-threaded, this handles
-/// multithreaded situations because Rust cried about it.
+/// multithreaded situations because Rust cried about it. Obviously this
+/// approach currently has high write contention, so sharding or something will
+/// be vital. But who cares. This is a prototype.
 static INTERNER: OnceLock<RwLock<StringInterner>> = OnceLock::new();
 
 fn with_interner<R>(f: impl FnOnce(&mut StringInterner) -> R) -> R {

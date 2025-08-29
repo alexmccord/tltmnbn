@@ -42,16 +42,16 @@ impl RenamedAst {
 
 struct Renamer<'ast> {
     ast_arena: &'ast AstArena,
-    stack: Vec<RenameOp<'ast>>,
+    stack: Vec<RenameOp>,
     lexical_scopes: LexicalScopes,
     renamed_ast: RenamedAst,
     next_local_id: LocalId,
 }
 
-enum RenameOp<'ast> {
+enum RenameOp {
     Node(ScopeId, AstNodeId),
     Def(ScopeId, NameId, LocalId),
-    Use(ScopeId, &'ast str, ExprId),
+    Use(ScopeId, Symbol, ExprId),
 }
 
 impl<'ast> Renamer<'ast> {
@@ -74,11 +74,13 @@ impl<'ast> Renamer<'ast> {
         (renamer.lexical_scopes, renamer.renamed_ast)
     }
 
-    fn dispatch(&mut self, op: RenameOp<'ast>) {
+    fn dispatch(&mut self, op: RenameOp) {
         match op {
             RenameOp::Node(scope_id, node_id) => self.dispatch_node(scope_id, node_id),
             RenameOp::Def(scope_id, name, local_id) => self.dispatch_def(scope_id, name, local_id),
-            RenameOp::Use(scope_id, str, expr_id) => self.dispatch_use(scope_id, str, expr_id),
+            RenameOp::Use(scope_id, symbol, expr_id) => {
+                self.dispatch_use(scope_id, symbol, expr_id)
+            }
         }
     }
 
@@ -96,13 +98,13 @@ impl<'ast> Renamer<'ast> {
     }
 
     fn dispatch_def(&mut self, scope_id: ScopeId, name_id: NameId, local_id: LocalId) {
-        let str_id = Symbol::intern(self.ast_arena[name_id].as_str());
+        let symbol = Symbol::intern(self.ast_arena[name_id].as_str());
         self.renamed_ast.defs.insert(name_id, local_id);
-        self.lexical_scopes[scope_id].insert(str_id, local_id);
+        self.lexical_scopes[scope_id].insert(symbol, local_id);
     }
 
-    fn dispatch_use(&mut self, scope_id: ScopeId, str: &'ast str, expr_id: ExprId) {
-        if let Some(local_id) = self.lexical_scopes.lookup(scope_id, Symbol::intern(str)) {
+    fn dispatch_use(&mut self, scope_id: ScopeId, symbol: Symbol, expr_id: ExprId) {
+        if let Some(local_id) = self.lexical_scopes.lookup(scope_id, symbol) {
             self.renamed_ast.uses.insert(expr_id, local_id);
         }
     }
@@ -132,14 +134,14 @@ impl<'ast> Renamer<'ast> {
     }
 
     fn push_use(&mut self, scope_id: ScopeId, str: &'ast str, expr_id: ExprId) {
-        self.push_op(RenameOp::Use(scope_id, str, expr_id));
+        self.push_op(RenameOp::Use(scope_id, Symbol::intern(str), expr_id));
     }
 
-    fn push_op(&mut self, op: RenameOp<'ast>) {
+    fn push_op(&mut self, op: RenameOp) {
         self.stack.push(op);
     }
 
-    fn pop_op(&mut self) -> Option<RenameOp<'ast>> {
+    fn pop_op(&mut self) -> Option<RenameOp> {
         self.stack.pop()
     }
 
