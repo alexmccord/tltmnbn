@@ -6,18 +6,16 @@ use crate::ast::stmt::{BlockStmt, Stmt, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprId};
 use crate::ast::ty_pack::{TyPackExpr, TyPackExprId};
 use crate::ast::{AstArena, AstNodeId};
-use crate::elab::SourceModule;
+use crate::driver::source::module::SourceModule;
 use crate::elab::scope::{LexicalScopes, ScopeId};
-use crate::interner::StringInterner;
+use crate::elab::symbol::Symbol;
 
-pub fn rename(source_module: &mut SourceModule) -> &RenamedAst {
-    let renamer = Renamer::new(source_module);
-    source_module.renamed_ast = renamer.build();
-    &source_module.renamed_ast
+pub fn rename(source_module: &mut SourceModule) -> (LexicalScopes, RenamedAst) {
+    Renamer::build(source_module)
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LocalId(usize);
+pub struct LocalId(u32);
 
 #[derive(Debug, Default, Clone)]
 pub struct RenamedAst {
@@ -43,12 +41,11 @@ impl RenamedAst {
 }
 
 struct Renamer<'ast> {
-    interner: &'ast mut StringInterner,
     ast_arena: &'ast AstArena,
-    lexical_scopes: &'ast mut LexicalScopes,
+    stack: Vec<RenameOp<'ast>>,
+    lexical_scopes: LexicalScopes,
     renamed_ast: RenamedAst,
     next_local_id: LocalId,
-    stack: Vec<RenameOp<'ast>>,
 }
 
 enum RenameOp<'ast> {
@@ -58,30 +55,23 @@ enum RenameOp<'ast> {
 }
 
 impl<'ast> Renamer<'ast> {
-    fn new(source_module: &'ast mut SourceModule) -> Renamer<'ast> {
-        let root_scope = source_module.lexical_scopes.new_scope(None);
-
-        let mut stack = Vec::with_capacity(source_module.root.stmts().len());
-        for &stmt in source_module.root.stmts().iter().rev() {
-            stack.push(RenameOp::Node(root_scope, stmt.into()));
-        }
-
-        Renamer {
-            interner: &mut source_module.interner,
-            ast_arena: &source_module.ast_arena,
-            lexical_scopes: &mut source_module.lexical_scopes,
+    fn build(source_module: &mut SourceModule) -> (LexicalScopes, RenamedAst) {
+        let mut renamer = Renamer {
+            ast_arena: source_module.ast_arena(),
+            stack: Vec::new(),
+            lexical_scopes: LexicalScopes::new(source_module.ast_arena()),
             renamed_ast: RenamedAst::new(),
             next_local_id: LocalId(0),
-            stack,
-        }
-    }
+        };
 
-    fn build(mut self) -> RenamedAst {
-        while let Some(op) = self.pop_op() {
-            self.dispatch(op);
+        let root_scope = renamer.lexical_scopes.new_scope(None);
+        renamer.push_block(root_scope, source_module.root());
+
+        while let Some(op) = renamer.pop_op() {
+            renamer.dispatch(op);
         }
 
-        self.renamed_ast
+        (renamer.lexical_scopes, renamer.renamed_ast)
     }
 
     fn dispatch(&mut self, op: RenameOp<'ast>) {
@@ -106,16 +96,13 @@ impl<'ast> Renamer<'ast> {
     }
 
     fn dispatch_def(&mut self, scope_id: ScopeId, name_id: NameId, local_id: LocalId) {
-        let str_id = self.interner.intern(self.ast_arena[name_id].as_str());
+        let str_id = Symbol::intern(self.ast_arena[name_id].as_str());
         self.renamed_ast.defs.insert(name_id, local_id);
         self.lexical_scopes[scope_id].insert(str_id, local_id);
     }
 
     fn dispatch_use(&mut self, scope_id: ScopeId, str: &'ast str, expr_id: ExprId) {
-        if let Some(local_id) = self
-            .lexical_scopes
-            .lookup(scope_id, self.interner.intern(str))
-        {
+        if let Some(local_id) = self.lexical_scopes.lookup(scope_id, Symbol::intern(str)) {
             self.renamed_ast.uses.insert(expr_id, local_id);
         }
     }
@@ -429,7 +416,7 @@ mod tests {
         let root = BlockStmt::new(vec![local_x_eq_7, local_x_eq_x]);
 
         let mut source_module = SourceModule::new(ast_arena, root);
-        let renamed_ast = rename(&mut source_module);
+        let (_, renamed_ast) = rename(&mut source_module);
 
         assert_eq!(renamed_ast.get_local_def(name_x_1), Some(LocalId(0)));
         assert_eq!(renamed_ast.get_local_def(name_x_2), Some(LocalId(1)));
@@ -456,7 +443,7 @@ mod tests {
         let root = BlockStmt::new(vec![repeat_stmt]);
 
         let mut source_module = SourceModule::new(ast_arena, root);
-        let renamed_ast = rename(&mut source_module);
+        let (_, renamed_ast) = rename(&mut source_module);
 
         assert_eq!(renamed_ast.get_local_def(done_name), Some(LocalId(0)));
         assert_eq!(renamed_ast.get_local_use(condition), Some(LocalId(0)));
@@ -486,7 +473,7 @@ mod tests {
         let root = BlockStmt::new(vec![function]);
 
         let mut source_module = SourceModule::new(ast_arena, root);
-        let renamed_ast = rename(&mut source_module);
+        let (_, renamed_ast) = rename(&mut source_module);
 
         assert_eq!(renamed_ast.get_local_def(self_ref_name), Some(LocalId(0)));
         assert_eq!(renamed_ast.get_local_use(self_ref_expr), Some(LocalId(0)));

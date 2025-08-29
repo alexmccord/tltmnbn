@@ -4,7 +4,7 @@ use std::ops;
 
 use crate::ast::{AstArena, AstNodeId};
 use crate::elab::renamer::LocalId;
-use crate::interner::StrId;
+use crate::elab::symbol::Symbol;
 
 #[derive(Debug, Default, Clone)]
 pub struct LexicalScopes {
@@ -16,12 +16,12 @@ pub struct LexicalScopes {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ScopeId(usize);
+pub struct ScopeId(u32);
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Scope {
     parent: Option<ScopeId>,
-    locals: HashMap<StrId, LocalId>,
+    locals: HashMap<Symbol, LocalId>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,9 +46,9 @@ impl LexicalScopes {
         }
     }
 
-    pub fn lookup(&self, scope_id: ScopeId, str_id: StrId) -> Option<LocalId> {
+    pub fn lookup(&self, scope_id: ScopeId, symbol: Symbol) -> Option<LocalId> {
         for scope in self.parents(scope_id) {
-            if let Some(local_id) = scope.find(str_id) {
+            if let Some(local_id) = scope.find(symbol) {
                 return Some(local_id);
             }
         }
@@ -64,7 +64,7 @@ impl LexicalScopes {
     }
 
     pub fn new_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
-        let scope_id = ScopeId::new(self.scopes.len());
+        let scope_id = ScopeId(self.scopes.len() as u32);
         self.scopes.push(Scope::new(parent));
         scope_id
     }
@@ -130,12 +130,8 @@ where
 }
 
 impl ScopeId {
-    pub fn new(index: usize) -> ScopeId {
-        ScopeId(index)
-    }
-
     pub fn index(&self) -> usize {
-        self.0
+        self.0 as usize
     }
 }
 
@@ -151,12 +147,12 @@ impl Scope {
         self.parent
     }
 
-    pub fn insert(&mut self, name: StrId, local: LocalId) {
-        self.locals.insert(name, local);
+    pub fn insert(&mut self, symbol: Symbol, local: LocalId) {
+        self.locals.insert(symbol, local);
     }
 
-    pub fn find(&self, name: StrId) -> Option<LocalId> {
-        self.locals.get(&name).cloned()
+    pub fn find(&self, symbol: Symbol) -> Option<LocalId> {
+        self.locals.get(&symbol).cloned()
     }
 }
 
