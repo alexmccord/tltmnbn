@@ -32,10 +32,10 @@ pub struct Parents<'a> {
 
 impl LexicalScopes {
     pub fn new(ast_arena: &AstArena) -> LexicalScopes {
-        let exprs_len = ast_arena.get_expr_arena().len();
-        let stmts_len = ast_arena.get_stmt_arena().len();
-        let ty_exprs_len = ast_arena.get_ty_expr_arena().len();
-        let ty_pack_exprs_len = ast_arena.get_ty_pack_expr_arena().len();
+        let exprs_len = ast_arena.exprs().len();
+        let stmts_len = ast_arena.stmts().len();
+        let ty_exprs_len = ast_arena.ty_exprs().len();
+        let ty_pack_exprs_len = ast_arena.ty_pack_exprs().len();
 
         LexicalScopes {
             scopes: Vec::new(),

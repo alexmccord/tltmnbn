@@ -23,8 +23,8 @@ impl ExprArena {
         }
     }
 
-    pub fn alloc(&mut self, expr: Expr) -> ExprId {
-        ExprId(self.exprs.alloc(expr))
+    pub fn alloc(&mut self, expr: impl Into<Expr>) -> ExprId {
+        ExprId(self.exprs.alloc(expr.into()))
     }
 
     pub fn get(&self, ExprId(id): ExprId) -> Option<&Expr> {
@@ -556,6 +556,84 @@ impl DoubleEndedIterator for ArgumentsIter<'_> {
 impl ExactSizeIterator for ArgumentsIter<'_> {
     fn len(&self) -> usize {
         self.end - self.start
+    }
+}
+
+impl From<NilExpr> for Expr {
+    fn from(value: NilExpr) -> Self {
+        Expr::Nil(value)
+    }
+}
+
+impl From<NumberExpr> for Expr {
+    fn from(value: NumberExpr) -> Self {
+        Expr::Number(value)
+    }
+}
+
+impl From<StringExpr> for Expr {
+    fn from(value: StringExpr) -> Self {
+        Expr::String(value)
+    }
+}
+
+impl From<BooleanExpr> for Expr {
+    fn from(value: BooleanExpr) -> Self {
+        Expr::Boolean(value)
+    }
+}
+
+impl From<IdentExpr> for Expr {
+    fn from(value: IdentExpr) -> Self {
+        Expr::Ident(value)
+    }
+}
+
+impl From<FieldExpr> for Expr {
+    fn from(value: FieldExpr) -> Self {
+        Expr::Field(value)
+    }
+}
+
+impl From<SubscriptExpr> for Expr {
+    fn from(value: SubscriptExpr) -> Self {
+        Expr::Subscript(value)
+    }
+}
+
+impl From<GroupExpr> for Expr {
+    fn from(value: GroupExpr) -> Self {
+        Expr::Group(value)
+    }
+}
+
+impl From<VarargsExpr> for Expr {
+    fn from(value: VarargsExpr) -> Self {
+        Expr::Varargs(value)
+    }
+}
+
+impl From<CallExpr> for Expr {
+    fn from(value: CallExpr) -> Self {
+        Expr::Call(value)
+    }
+}
+
+impl From<FunctionExpr> for Expr {
+    fn from(value: FunctionExpr) -> Self {
+        Expr::Function(value)
+    }
+}
+
+impl From<UnaryExpr> for Expr {
+    fn from(value: UnaryExpr) -> Self {
+        Expr::Unary(value)
+    }
+}
+
+impl From<BinaryExpr> for Expr {
+    fn from(value: BinaryExpr) -> Self {
+        Expr::Binary(value)
     }
 }
 

@@ -53,28 +53,28 @@ impl AstArena {
         self.names.alloc(name)
     }
 
-    pub fn alloc_expr(&mut self, expr: Expr) -> ExprId {
+    pub fn alloc_expr(&mut self, expr: impl Into<Expr>) -> ExprId {
         self.exprs.alloc(expr)
     }
 
-    pub fn alloc_stmt(&mut self, stmt: Stmt) -> StmtId {
+    pub fn alloc_stmt(&mut self, stmt: impl Into<Stmt>) -> StmtId {
         self.stmts.alloc(stmt)
     }
 
-    pub fn alloc_ty_expr(&mut self, ty_expr: TyExpr) -> TyExprId {
+    pub fn alloc_ty_expr(&mut self, ty_expr: impl Into<TyExpr>) -> TyExprId {
         self.ty_exprs.alloc(ty_expr)
     }
 
-    pub fn alloc_ty_pack_expr(&mut self, ty_pack_expr: TyPackExpr) -> TyPackExprId {
+    pub fn alloc_ty_pack_expr(&mut self, ty_pack_expr: impl Into<TyPackExpr>) -> TyPackExprId {
         self.ty_pack_exprs.alloc(ty_pack_expr)
     }
 
     pub fn get(&self, ast_node_id: AstNodeId) -> Option<AstNodeRef<'_>> {
         match ast_node_id {
-            AstNodeId::ExprId(id) => self.get_expr(id).map(From::from),
-            AstNodeId::StmtId(id) => self.get_stmt(id).map(From::from),
-            AstNodeId::TyExprId(id) => self.get_ty_expr(id).map(From::from),
-            AstNodeId::TyPackExprId(id) => self.get_ty_pack_expr(id).map(From::from),
+            AstNodeId::ExprId(id) => self.get_expr(id).map(AstNodeRef::Expr),
+            AstNodeId::StmtId(id) => self.get_stmt(id).map(AstNodeRef::Stmt),
+            AstNodeId::TyExprId(id) => self.get_ty_expr(id).map(AstNodeRef::TyExpr),
+            AstNodeId::TyPackExprId(id) => self.get_ty_pack_expr(id).map(AstNodeRef::TyPackExpr),
         }
     }
 
@@ -98,27 +98,43 @@ impl AstArena {
         self.ty_pack_exprs.get(ty_pack_expr_id)
     }
 
-    pub fn get_expr_arena(&self) -> &ExprArena {
+    pub fn exprs(&self) -> &ExprArena {
         &self.exprs
     }
 
-    pub fn get_stmt_arena(&self) -> &StmtArena {
+    pub fn exprs_mut(&mut self) -> &mut ExprArena {
+        &mut self.exprs
+    }
+
+    pub fn stmts(&self) -> &StmtArena {
         &self.stmts
     }
 
-    pub fn get_ty_expr_arena(&self) -> &TyExprArena {
+    pub fn stmts_mut(&mut self) -> &mut StmtArena {
+        &mut self.stmts
+    }
+
+    pub fn ty_exprs(&self) -> &TyExprArena {
         &self.ty_exprs
     }
 
-    pub fn get_ty_pack_expr_arena(&self) -> &TyPackExprArena {
+    pub fn ty_exprs_mut(&mut self) -> &mut TyExprArena {
+        &mut self.ty_exprs
+    }
+
+    pub fn ty_pack_exprs(&self) -> &TyPackExprArena {
         &self.ty_pack_exprs
     }
 
+    pub fn ty_pack_exprs_mut(&mut self) -> &mut TyPackExprArena {
+        &mut self.ty_pack_exprs
+    }
+
     pub fn len(&self) -> usize {
-        let expr_len = self.get_expr_arena().len();
-        let stmt_len = self.get_stmt_arena().len();
-        let ty_expr_len = self.get_ty_expr_arena().len();
-        let ty_pack_expr_len = self.get_ty_pack_expr_arena().len();
+        let expr_len = self.exprs().len();
+        let stmt_len = self.stmts().len();
+        let ty_expr_len = self.ty_exprs().len();
+        let ty_pack_expr_len = self.ty_pack_exprs().len();
 
         expr_len + stmt_len + ty_expr_len + ty_pack_expr_len
     }

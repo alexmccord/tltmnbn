@@ -17,8 +17,8 @@ impl TyExprArena {
         }
     }
 
-    pub fn alloc(&mut self, ty_expr: TyExpr) -> TyExprId {
-        TyExprId(self.ty_exprs.alloc(ty_expr))
+    pub fn alloc(&mut self, ty_expr: impl Into<TyExpr>) -> TyExprId {
+        TyExprId(self.ty_exprs.alloc(ty_expr.into()))
     }
 
     pub fn get(&self, TyExprId(id): TyExprId) -> Option<&TyExpr> {
@@ -59,5 +59,11 @@ pub struct TyExprIdent(String);
 impl TyExprIdent {
     pub fn new(ident: impl Into<String>) -> TyExprIdent {
         TyExprIdent(ident.into())
+    }
+}
+
+impl From<TyExprIdent> for TyExpr {
+    fn from(value: TyExprIdent) -> Self {
+        TyExpr::Ident(value)
     }
 }

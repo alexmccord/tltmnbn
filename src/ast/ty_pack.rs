@@ -19,8 +19,8 @@ impl TyPackExprArena {
         }
     }
 
-    pub fn alloc(&mut self, ty_pack_expr: TyPackExpr) -> TyPackExprId {
-        TyPackExprId(self.ty_pack_exprs.alloc(ty_pack_expr))
+    pub fn alloc(&mut self, ty_pack_expr: impl Into<TyPackExpr>) -> TyPackExprId {
+        TyPackExprId(self.ty_pack_exprs.alloc(ty_pack_expr.into()))
     }
 
     pub fn get(&self, TyPackExprId(id): TyPackExprId) -> Option<&TyPackExpr> {
@@ -72,5 +72,11 @@ impl TyPackExprList {
 
     pub fn tail(&self) -> Option<TyPackExprId> {
         self.tail
+    }
+}
+
+impl From<TyPackExprList> for TyPackExpr {
+    fn from(value: TyPackExprList) -> Self {
+        TyPackExpr::List(value)
     }
 }

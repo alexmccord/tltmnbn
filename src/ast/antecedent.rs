@@ -93,10 +93,10 @@ struct AstAntecedentGraphBuilder {
 impl AstAntecedentGraphBuilder {
     fn with_capacity_from(ast_arena: &AstArena) -> AstAntecedentGraphBuilder {
         AstAntecedentGraphBuilder {
-            exprs: Vec::with_capacity(ast_arena.get_expr_arena().len()),
-            stmts: Vec::with_capacity(ast_arena.get_stmt_arena().len()),
-            ty_exprs: Vec::with_capacity(ast_arena.get_ty_expr_arena().len()),
-            ty_pack_exprs: Vec::with_capacity(ast_arena.get_ty_pack_expr_arena().len()),
+            exprs: Vec::with_capacity(ast_arena.exprs().len()),
+            stmts: Vec::with_capacity(ast_arena.stmts().len()),
+            ty_exprs: Vec::with_capacity(ast_arena.ty_exprs().len()),
+            ty_pack_exprs: Vec::with_capacity(ast_arena.ty_pack_exprs().len()),
             queue: VecDeque::with_capacity(ast_arena.len()),
         }
     }

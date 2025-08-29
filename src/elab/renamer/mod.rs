@@ -376,18 +376,18 @@ mod tests {
         let mut ast_arena = AstArena::new();
 
         let name_x_1 = ast_arena.alloc_name(Name::new("x"));
-        let seven = ast_arena.alloc_expr(Expr::Number(NumberExpr::new("7")));
-        let local_x_eq_7 = ast_arena.alloc_stmt(Stmt::Local(LocalStmt::new(
+        let seven = ast_arena.alloc_expr(NumberExpr::new("7"));
+        let local_x_eq_7 = ast_arena.alloc_stmt(LocalStmt::new(
             vec![Local::new(name_x_1, None)],
             vec![seven],
-        )));
+        ));
 
         let name_x_2 = ast_arena.alloc_name(Name::new("x"));
-        let expr_x = ast_arena.alloc_expr(Expr::Ident(IdentExpr::new("x")));
-        let local_x_eq_x = ast_arena.alloc_stmt(Stmt::Local(LocalStmt::new(
+        let expr_x = ast_arena.alloc_expr(IdentExpr::new("x"));
+        let local_x_eq_x = ast_arena.alloc_stmt(LocalStmt::new(
             vec![Local::new(name_x_2, None)],
             vec![expr_x],
-        )));
+        ));
 
         let root = BlockStmt::new(vec![local_x_eq_7, local_x_eq_x]);
 
@@ -409,15 +409,12 @@ mod tests {
 
         let done_name = ast_arena.alloc_name(Name::new("done"));
         let done_local = Local::new(done_name, None);
-        let true_expr = ast_arena.alloc_expr(Expr::Boolean(BooleanExpr::new(true)));
-        let done_stmt = ast_arena.alloc_stmt(Stmt::Local(LocalStmt::new(
-            vec![done_local],
-            vec![true_expr],
-        )));
+        let true_expr = ast_arena.alloc_expr(BooleanExpr::new(true));
+        let done_stmt = ast_arena.alloc_stmt(LocalStmt::new(vec![done_local], vec![true_expr]));
 
         let body = BlockStmt::new(vec![done_stmt]);
-        let condition = ast_arena.alloc_expr(Expr::Ident(IdentExpr::new("done")));
-        let repeat_stmt = ast_arena.alloc_stmt(Stmt::Repeat(RepeatStmt::new(body, condition)));
+        let condition = ast_arena.alloc_expr(IdentExpr::new("done"));
+        let repeat_stmt = ast_arena.alloc_stmt(RepeatStmt::new(body, condition));
 
         let root = BlockStmt::new(vec![repeat_stmt]);
 
@@ -437,18 +434,17 @@ mod tests {
         let mut ast_arena = AstArena::new();
 
         let self_ref_name = ast_arena.alloc_name(Name::new("self_ref"));
-        let self_ref_expr = ast_arena.alloc_expr(Expr::Ident(IdentExpr::new("self_ref")));
-        let self_ref_stmt =
-            ast_arena.alloc_stmt(Stmt::Return(ReturnStmt::new(vec![self_ref_expr])));
+        let self_ref_expr = ast_arena.alloc_expr(IdentExpr::new("self_ref"));
+        let self_ref_stmt = ast_arena.alloc_stmt(ReturnStmt::new(vec![self_ref_expr]));
 
-        let function = ast_arena.alloc_stmt(Stmt::LocalFunction(LocalFunctionStmt::new(
+        let function = ast_arena.alloc_stmt(LocalFunctionStmt::new(
             self_ref_name,
             FunctionExpr::new(
                 Parameters::new(Vec::new(), None),
                 None,
                 BlockStmt::new(vec![self_ref_stmt]),
             ),
-        )));
+        ));
 
         let root = BlockStmt::new(vec![function]);
 

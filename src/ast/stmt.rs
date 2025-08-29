@@ -21,8 +21,8 @@ impl StmtArena {
         }
     }
 
-    pub fn alloc(&mut self, stmt: Stmt) -> StmtId {
-        StmtId(self.stmts.alloc(stmt))
+    pub fn alloc(&mut self, stmt: impl Into<Stmt>) -> StmtId {
+        StmtId(self.stmts.alloc(stmt.into()))
     }
 
     pub fn get(&self, StmtId(id): StmtId) -> Option<&Stmt> {
@@ -387,5 +387,95 @@ impl LocalFunctionStmt {
 
     pub fn body(&self) -> &BlockStmt {
         self.function().body()
+    }
+}
+
+impl From<BlockStmt> for Stmt {
+    fn from(value: BlockStmt) -> Self {
+        Stmt::Block(value)
+    }
+}
+
+impl From<IfStmt> for Stmt {
+    fn from(value: IfStmt) -> Self {
+        Stmt::Branch(value)
+    }
+}
+
+impl From<WhileStmt> for Stmt {
+    fn from(value: WhileStmt) -> Self {
+        Stmt::While(value)
+    }
+}
+
+impl From<RepeatStmt> for Stmt {
+    fn from(value: RepeatStmt) -> Self {
+        Stmt::Repeat(value)
+    }
+}
+
+impl From<ForRangeStmt> for Stmt {
+    fn from(value: ForRangeStmt) -> Self {
+        Stmt::ForRange(value)
+    }
+}
+
+impl From<ForIterStmt> for Stmt {
+    fn from(value: ForIterStmt) -> Self {
+        Stmt::ForIter(value)
+    }
+}
+
+impl From<BreakStmt> for Stmt {
+    fn from(value: BreakStmt) -> Self {
+        Stmt::Break(value)
+    }
+}
+
+impl From<ContinueStmt> for Stmt {
+    fn from(value: ContinueStmt) -> Self {
+        Stmt::Continue(value)
+    }
+}
+
+impl From<ReturnStmt> for Stmt {
+    fn from(value: ReturnStmt) -> Self {
+        Stmt::Return(value)
+    }
+}
+
+impl From<ExprStmt> for Stmt {
+    fn from(value: ExprStmt) -> Self {
+        Stmt::Expr(value)
+    }
+}
+
+impl From<LocalStmt> for Stmt {
+    fn from(value: LocalStmt) -> Self {
+        Stmt::Local(value)
+    }
+}
+
+impl From<AssignStmt> for Stmt {
+    fn from(value: AssignStmt) -> Self {
+        Stmt::Assign(value)
+    }
+}
+
+impl From<CompoundAssignStmt> for Stmt {
+    fn from(value: CompoundAssignStmt) -> Self {
+        Stmt::CompoundAssign(value)
+    }
+}
+
+impl From<FunctionStmt> for Stmt {
+    fn from(value: FunctionStmt) -> Self {
+        Stmt::Function(value)
+    }
+}
+
+impl From<LocalFunctionStmt> for Stmt {
+    fn from(value: LocalFunctionStmt) -> Self {
+        Stmt::LocalFunction(value)
     }
 }
