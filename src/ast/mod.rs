@@ -98,36 +98,24 @@ impl AstArena {
         self.ty_pack_exprs.get(ty_pack_expr_id)
     }
 
-    pub fn exprs(&self) -> &ExprArena {
-        &self.exprs
+    pub fn names(&self) -> &NameArena {
+        &self.names
     }
 
-    pub fn exprs_mut(&mut self) -> &mut ExprArena {
-        &mut self.exprs
+    pub fn exprs(&self) -> &ExprArena {
+        &self.exprs
     }
 
     pub fn stmts(&self) -> &StmtArena {
         &self.stmts
     }
 
-    pub fn stmts_mut(&mut self) -> &mut StmtArena {
-        &mut self.stmts
-    }
-
     pub fn ty_exprs(&self) -> &TyExprArena {
         &self.ty_exprs
     }
 
-    pub fn ty_exprs_mut(&mut self) -> &mut TyExprArena {
-        &mut self.ty_exprs
-    }
-
     pub fn ty_pack_exprs(&self) -> &TyPackExprArena {
         &self.ty_pack_exprs
-    }
-
-    pub fn ty_pack_exprs_mut(&mut self) -> &mut TyPackExprArena {
-        &mut self.ty_pack_exprs
     }
 
     pub fn len(&self) -> usize {

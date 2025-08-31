@@ -17,8 +17,8 @@ impl TyArena {
         TyArena { tys: Arena::new() }
     }
 
-    pub fn alloc(&mut self, ty: Ty) -> TyId {
-        TyId(self.tys.alloc(ty))
+    pub fn alloc(&mut self, ty: impl Into<Ty>) -> TyId {
+        TyId(self.tys.alloc(ty.into()))
     }
 
     pub fn get(&self, TyId(id): TyId) -> Option<&Ty> {
@@ -66,7 +66,6 @@ pub enum PrimitiveTy {
     Nil,
     Number,
     String,
-    Boolean,
     Function,
     Table,
 }
@@ -96,13 +95,13 @@ pub struct IntersectionTy {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct PropertyTy {
     field: StrId,
-    ty: TyId,
+    ty_id: TyId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct IndexerTy {
-    key_ty: TyId,
-    value_ty: TyId,
+    key_ty_id: TyId,
+    value_ty_id: TyId,
 }
 
 impl SingletonTy {
@@ -112,13 +111,6 @@ impl SingletonTy {
 
     pub fn string(value: StrId) -> SingletonTy {
         SingletonTy::String(StringSingletonTy::new(value))
-    }
-
-    pub fn primitive(&self) -> PrimitiveTy {
-        match self {
-            SingletonTy::Boolean(_) => PrimitiveTy::Boolean,
-            SingletonTy::String(_) => PrimitiveTy::String,
-        }
     }
 }
 
@@ -159,5 +151,42 @@ impl IntersectionTy {
 
     pub fn constituents(&self) -> &[TyId] {
         &self.constituents
+    }
+}
+
+impl PropertyTy {
+    pub fn new(field: StrId, ty_id: TyId) -> PropertyTy {
+        PropertyTy { field, ty_id }
+    }
+
+    pub fn field(&self) -> StrId {
+        self.field
+    }
+
+    pub fn ty_id(&self) -> TyId {
+        self.ty_id
+    }
+}
+
+impl IndexerTy {
+    pub fn new(key_ty_id: TyId, value_ty_id: TyId) -> IndexerTy {
+        IndexerTy {
+            key_ty_id,
+            value_ty_id,
+        }
+    }
+
+    pub fn key(&self) -> TyId {
+        self.key_ty_id
+    }
+
+    pub fn value(&self) -> TyId {
+        self.value_ty_id
+    }
+}
+
+impl From<PrimitiveTy> for Ty {
+    fn from(value: PrimitiveTy) -> Self {
+        Ty::Primitive(value)
     }
 }

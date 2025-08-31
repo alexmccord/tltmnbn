@@ -1,7 +1,8 @@
 use std::collections::VecDeque;
 use std::ops;
 
-use crate::ast::expr::{Expr, ExprId, FunctionExpr};
+use crate::ast::expr::{Expr, ExprId, FunctionExpr, ParamKind};
+use crate::ast::name::Local;
 use crate::ast::stmt::{BlockStmt, Stmt, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprId};
 use crate::ast::ty_pack::{TyPackExpr, TyPackExprId};
@@ -15,31 +16,20 @@ pub struct AstAntecedentGraph {
     ty_pack_exprs: Vec<AstNodeId>,
 }
 
-pub struct AntecedentIter<'a> {
+pub struct Antecedents<'a> {
     graph: &'a AstAntecedentGraph,
     id: AstNodeId,
 }
 
 impl AstAntecedentGraph {
     pub fn build(ast_arena: &AstArena, block: &BlockStmt) -> AstAntecedentGraph {
-        let mut builder = AstAntecedentGraphBuilder::with_capacity_from(ast_arena);
-        builder.enqueue_block(block);
-        builder.build(ast_arena);
+        let mut builder = AstAntecedentGraphBuilder::new(ast_arena);
 
-        fn rebuild<A, B>(mut vec: Vec<(A, B)>) -> Vec<B>
-        where
-            A: Copy + Ord,
-        {
-            vec.sort_by_key(|&(k, _)| k);
-            vec.into_iter().map(|(_, parent)| parent).collect()
+        for &stmt in block.stmts() {
+            builder.push(stmt);
         }
 
-        AstAntecedentGraph {
-            exprs: rebuild(builder.exprs),
-            stmts: rebuild(builder.stmts),
-            ty_exprs: rebuild(builder.ty_exprs),
-            ty_pack_exprs: rebuild(builder.ty_pack_exprs),
-        }
+        builder.build()
     }
 
     pub fn get(&self, id: impl Into<AstNodeId>) -> Option<AstNodeId> {
@@ -51,8 +41,8 @@ impl AstAntecedentGraph {
         }
     }
 
-    pub fn antecedents(&self, id: impl Into<AstNodeId>) -> AntecedentIter<'_> {
-        AntecedentIter {
+    pub fn antecedents(&self, id: impl Into<AstNodeId>) -> Antecedents<'_> {
+        Antecedents {
             graph: self,
             id: id.into(),
         }
@@ -72,7 +62,7 @@ impl<T: Into<AstNodeId>> ops::Index<T> for AstAntecedentGraph {
     }
 }
 
-impl Iterator for AntecedentIter<'_> {
+impl Iterator for Antecedents<'_> {
     type Item = AstNodeId;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -82,7 +72,8 @@ impl Iterator for AntecedentIter<'_> {
     }
 }
 
-struct AstAntecedentGraphBuilder {
+struct AstAntecedentGraphBuilder<'ast> {
+    ast_arena: &'ast AstArena,
     exprs: Vec<(ExprId, AstNodeId)>,
     stmts: Vec<(StmtId, AstNodeId)>,
     ty_exprs: Vec<(TyExprId, AstNodeId)>,
@@ -90,9 +81,10 @@ struct AstAntecedentGraphBuilder {
     queue: VecDeque<AstNodeId>,
 }
 
-impl AstAntecedentGraphBuilder {
-    fn with_capacity_from(ast_arena: &AstArena) -> AstAntecedentGraphBuilder {
+impl<'ast> AstAntecedentGraphBuilder<'ast> {
+    fn new(ast_arena: &'ast AstArena) -> AstAntecedentGraphBuilder<'ast> {
         AstAntecedentGraphBuilder {
+            ast_arena,
             exprs: Vec::with_capacity(ast_arena.exprs().len()),
             stmts: Vec::with_capacity(ast_arena.stmts().len()),
             ty_exprs: Vec::with_capacity(ast_arena.ty_exprs().len()),
@@ -101,14 +93,29 @@ impl AstAntecedentGraphBuilder {
         }
     }
 
-    fn build(&mut self, ast_arena: &AstArena) {
-        while let Some(id) = self.pop_id() {
+    fn build(mut self) -> AstAntecedentGraph {
+        while let Some(id) = self.pop() {
             match id {
-                AstNodeId::ExprId(id) => self.visit_expr(ast_arena, id),
-                AstNodeId::StmtId(id) => self.visit_stmt(ast_arena, id),
-                AstNodeId::TyExprId(id) => self.visit_ty_expr(ast_arena, id),
-                AstNodeId::TyPackExprId(id) => self.visit_ty_pack_expr(ast_arena, id),
+                AstNodeId::ExprId(id) => self.visit_expr(id),
+                AstNodeId::StmtId(id) => self.visit_stmt(id),
+                AstNodeId::TyExprId(id) => self.visit_ty_expr(id),
+                AstNodeId::TyPackExprId(id) => self.visit_ty_pack_expr(id),
             }
+        }
+
+        fn rebuild<A, B>(mut vec: Vec<(A, B)>) -> Vec<B>
+        where
+            A: Copy + Ord,
+        {
+            vec.sort_by_key(|&(k, _)| k);
+            vec.into_iter().map(|(_, parent)| parent).collect()
+        }
+
+        AstAntecedentGraph {
+            exprs: rebuild(self.exprs),
+            stmts: rebuild(self.stmts),
+            ty_exprs: rebuild(self.ty_exprs),
+            ty_pack_exprs: rebuild(self.ty_pack_exprs),
         }
     }
 
@@ -123,7 +130,7 @@ impl AstAntecedentGraphBuilder {
             AstNodeId::TyPackExprId(id) => self.ty_pack_exprs.push((id, parent)),
         }
 
-        self.enqueue_id(child);
+        self.push(child);
     }
 
     fn try_add_edge(&mut self, child: Option<impl Into<AstNodeId>>, parent: impl Into<AstNodeId>) {
@@ -144,8 +151,8 @@ impl AstAntecedentGraphBuilder {
         }
     }
 
-    fn visit_expr(&mut self, ast_arena: &AstArena, id: ExprId) {
-        match &ast_arena[id] {
+    fn visit_expr(&mut self, id: ExprId) {
+        match &self.ast_arena[id] {
             Expr::Nil(_) => (),
             Expr::Number(_) => (),
             Expr::String(_) => (),
@@ -171,8 +178,8 @@ impl AstAntecedentGraphBuilder {
         }
     }
 
-    fn visit_stmt(&mut self, ast_arena: &AstArena, id: StmtId) {
-        match &ast_arena[id] {
+    fn visit_stmt(&mut self, id: StmtId) {
+        match &self.ast_arena[id] {
             Stmt::Block(block_stmt) => self.add_edges(block_stmt.stmts().iter().cloned(), id),
             Stmt::Branch(if_stmt) => {
                 self.add_edge(if_stmt.condition(), id);
@@ -191,7 +198,7 @@ impl AstAntecedentGraphBuilder {
                 self.add_edge(repeat_stmt.condition(), id);
             }
             Stmt::ForRange(for_range_stmt) => {
-                self.try_add_edge(for_range_stmt.var().annotation(), id);
+                self.visit_local(for_range_stmt.var(), id);
                 self.add_edge(for_range_stmt.from(), id);
                 self.add_edge(for_range_stmt.to(), id);
                 self.try_add_edge(for_range_stmt.step(), id);
@@ -207,7 +214,7 @@ impl AstAntecedentGraphBuilder {
             Stmt::Return(return_stmt) => self.add_edges(return_stmt.exprs().iter().cloned(), id),
             Stmt::Expr(expr_stmt) => self.add_edge(expr_stmt.expr(), id),
             Stmt::Local(local_stmt) => {
-                self.add_edges(local_stmt.locals().iter().flat_map(|l| l.annotation()), id);
+                self.visit_locals(local_stmt.locals().iter(), id);
                 self.add_edges(local_stmt.exprs().iter().cloned(), id);
             }
             Stmt::Assign(assign_stmt) => {
@@ -239,20 +246,17 @@ impl AstAntecedentGraphBuilder {
         }
     }
 
-    fn visit_ty_expr(&mut self, ast_arena: &AstArena, id: TyExprId) {
-        match &ast_arena[id] {
+    fn visit_ty_expr(&mut self, id: TyExprId) {
+        match &self.ast_arena[id] {
             TyExpr::Ident(_) => (),
             TyExpr::Typeof(typeof_ty_expr) => self.add_edge(typeof_ty_expr.expr(), id),
         }
     }
 
-    fn visit_ty_pack_expr(&mut self, ast_arena: &AstArena, id: TyPackExprId) {
-        match &ast_arena[id] {
+    fn visit_ty_pack_expr(&mut self, id: TyPackExprId) {
+        match &self.ast_arena[id] {
             TyPackExpr::List(list) => {
-                for &head in list.head() {
-                    self.add_edge(head, id);
-                }
-
+                self.add_edges(list.head().iter().cloned(), id);
                 self.try_add_edge(list.tail(), id);
             }
         }
@@ -262,27 +266,39 @@ impl AstAntecedentGraphBuilder {
         let id = id.into();
 
         for param in function.parameters() {
-            self.try_add_edge(param.annotation(), id);
+            match param {
+                ParamKind::Param(param) => self.visit_local(param.local(), id),
+                ParamKind::ParamPack(param_pack) => self.try_add_edge(param_pack.annotation(), id),
+            }
         }
 
         self.try_add_edge(function.return_annotation(), id);
+        self.add_edges(function.body().stmts().iter().cloned(), id);
+    }
 
-        for &stmt in function.body().stmts() {
-            self.add_edge(stmt, id);
+    fn visit_local(&mut self, local: &Local, id: impl Into<AstNodeId>) {
+        let id = id.into();
+
+        self.try_add_edge(local.annotation(), id);
+    }
+
+    fn visit_locals<'a>(
+        &mut self,
+        locals: impl Iterator<Item = &'a Local>,
+        id: impl Into<AstNodeId>,
+    ) {
+        let id = id.into();
+
+        for local in locals {
+            self.try_add_edge(local.annotation(), id);
         }
     }
 
-    fn enqueue_block(&mut self, block: &BlockStmt) {
-        for &stmt in block.stmts() {
-            self.enqueue_id(stmt);
-        }
-    }
-
-    fn enqueue_id(&mut self, id: impl Into<AstNodeId>) {
+    fn push(&mut self, id: impl Into<AstNodeId>) {
         self.queue.push_back(id.into());
     }
 
-    fn pop_id(&mut self) -> Option<AstNodeId> {
+    fn pop(&mut self) -> Option<AstNodeId> {
         self.queue.pop_front()
     }
 }

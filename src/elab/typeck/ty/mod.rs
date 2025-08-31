@@ -1,4 +1,7 @@
-use crate::elab::typeck::ty::TyArena;
+pub mod ir;
+pub mod syn;
+
+use crate::elab::typeck::ty::ir::TyArena;
 
 #[derive(Debug, Default, Clone)]
 pub struct TypeGraph {
