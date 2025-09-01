@@ -9,6 +9,10 @@ pub struct NameArena {
     names: Arena<Name>,
 }
 
+/// We use a `NameId` because `Symbol` is interned and always compares equal,
+/// and using pointer equality of `Name` is not ideal because you can trivially
+/// construct one _anywhere_. By doing this, it's pretty clear which `x` we're
+/// talking about in a `HashMap<NameId, T>` given the fragment `local x, x`.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NameId(Id<Name>);
 
