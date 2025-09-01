@@ -206,7 +206,7 @@ impl<'a> Iterator for Parents<'a> {
 struct Renamer<'ast> {
     ast_arena: &'ast AstArena,
     ops: Vec<RenameOp>,
-    stack: Vec<ScopeId>,
+    current_scope: Option<ScopeId>,
     renamed_ast: RenamedAst,
     next_local_id: LocalId,
 }
@@ -224,7 +224,7 @@ impl<'ast> Renamer<'ast> {
         Renamer {
             ast_arena: source_module.ast_arena(),
             ops: Vec::new(),
-            stack: Vec::new(),
+            current_scope: None,
             renamed_ast: RenamedAst::new(source_module.ast_arena()),
             next_local_id: LocalId(0),
         }
@@ -233,18 +233,22 @@ impl<'ast> Renamer<'ast> {
     fn dispatch(&mut self, op: RenameOp) {
         match op {
             RenameOp::Push => {
-                let parent = self.stack.last().cloned();
-                let scope_id = self.renamed_ast.lexical_scopes.new_scope(parent);
-                self.stack.push(scope_id);
+                let scope_id = self
+                    .renamed_ast
+                    .lexical_scopes
+                    .new_scope(self.current_scope);
+
+                self.current_scope = Some(scope_id);
             }
             RenameOp::Pop => {
-                self.stack.pop();
+                let scope_id = self.current_scope.unwrap();
+                let scope = &self.renamed_ast.lexical_scopes[scope_id];
+                self.current_scope = scope.parent();
             }
             RenameOp::Node { node_id } => {
-                let &scope_id = self.stack.last().unwrap();
                 self.renamed_ast
                     .lexical_scopes
-                    .bind_scope(node_id, scope_id);
+                    .bind_scope(node_id, self.current_scope.unwrap());
 
                 match node_id {
                     AstNodeId::ExprId(expr_id) => self.visit_expr(expr_id),
@@ -260,12 +264,11 @@ impl<'ast> Renamer<'ast> {
                 self.renamed_ast.defs.insert(name_id, local_id);
 
                 let symbol = Symbol::intern(self.ast_arena[name_id].as_str());
-                let &scope_id = self.stack.last().unwrap();
+                let scope_id = self.current_scope.unwrap();
                 self.renamed_ast.lexical_scopes[scope_id].insert(symbol, local_id);
             }
             RenameOp::Resolve { symbol, expr_id } => {
-                let &scope_id = self.stack.last().unwrap();
-
+                let scope_id = self.current_scope.unwrap();
                 if let Some(local_id) = self.renamed_ast.lexical_scopes.lookup(scope_id, symbol) {
                     self.renamed_ast.uses.insert(expr_id, local_id);
                 }
@@ -350,11 +353,7 @@ impl<'ast> Renamer<'ast> {
 
     fn visit_stmt(&mut self, stmt_id: StmtId) {
         match &self.ast_arena[stmt_id] {
-            Stmt::Block(block_stmt) => {
-                self.push_op(RenameOp::Push);
-                self.push_block(block_stmt);
-                self.push_op(RenameOp::Pop);
-            }
+            Stmt::Block(block_stmt) => self.new_scope(|renamer| renamer.push_block(block_stmt)),
             Stmt::Branch(if_stmt) => {
                 if let Some(else_body) = if_stmt.else_body() {
                     self.new_scope(|renamer| renamer.push_block(else_body));
@@ -384,8 +383,8 @@ impl<'ast> Renamer<'ast> {
             }
             Stmt::ForRange(for_range_stmt) => {
                 self.new_scope(|renamer| {
-                    renamer.push_def(for_range_stmt.var().name());
                     renamer.push_block(for_range_stmt.body());
+                    renamer.push_def(for_range_stmt.var().name());
                 });
 
                 if let Some(step) = for_range_stmt.step() {
@@ -401,12 +400,12 @@ impl<'ast> Renamer<'ast> {
             }
             Stmt::ForIter(for_iter_stmt) => {
                 self.new_scope(|renamer| {
+                    renamer.push_block(for_iter_stmt.body());
+
                     for local in for_iter_stmt.vars().iter().rev() {
                         renamer.push_def(local.name());
                     }
                 });
-
-                self.push_block(for_iter_stmt.body());
 
                 for &expr in for_iter_stmt.exprs().iter().rev() {
                     self.push_node(expr);
@@ -632,5 +631,67 @@ mod tests {
 
         assert_eq!(renamed_ast.get_local_def(self_ref_name), Some(LocalId(0)));
         assert_eq!(renamed_ast.get_local_use(self_ref_expr), Some(LocalId(0)));
+    }
+
+    #[test]
+    fn rename_scoped() {
+        // local x = "a"
+        // do
+        //   print(x)
+        //   local x = "b"
+        //   print(x)
+        // end
+        // print(x)
+
+        let mut ast_arena = AstArena::new();
+
+        let x_name_1 = ast_arena.alloc_name(Name::new("x"));
+        let a_string = ast_arena.alloc_expr(StringExpr::new("a"));
+        let local_x_1 = ast_arena.alloc_stmt(LocalStmt::new(
+            vec![Local::new(x_name_1, None)],
+            vec![a_string],
+        ));
+
+        let print_1 = ast_arena.alloc_expr(IdentExpr::new("print"));
+        let x_1 = ast_arena.alloc_expr(IdentExpr::new("x"));
+        let print_x_1_expr =
+            ast_arena.alloc_expr(CallExpr::new(print_1, Arguments::new(None, vec![x_1])));
+        let print_x_1_stmt = ast_arena.alloc_stmt(ExprStmt::new(print_x_1_expr));
+
+        let x_name_2 = ast_arena.alloc_name(Name::new("x"));
+        let b_string = ast_arena.alloc_expr(StringExpr::new("b"));
+        let local_x_2 = ast_arena.alloc_stmt(LocalStmt::new(
+            vec![Local::new(x_name_2, None)],
+            vec![b_string],
+        ));
+
+        let print_2 = ast_arena.alloc_expr(IdentExpr::new("print"));
+        let x_2 = ast_arena.alloc_expr(IdentExpr::new("x"));
+        let print_x_2_expr =
+            ast_arena.alloc_expr(CallExpr::new(print_2, Arguments::new(None, vec![x_2])));
+        let print_x_2_stmt = ast_arena.alloc_stmt(ExprStmt::new(print_x_2_expr));
+
+        let do_block = ast_arena.alloc_stmt(BlockStmt::new(vec![
+            print_x_1_stmt,
+            local_x_2,
+            print_x_2_stmt,
+        ]));
+
+        let print_3 = ast_arena.alloc_expr(IdentExpr::new("print"));
+        let x_3 = ast_arena.alloc_expr(IdentExpr::new("x"));
+        let print_x_3_expr =
+            ast_arena.alloc_expr(CallExpr::new(print_3, Arguments::new(None, vec![x_3])));
+        let print_x_3_stmt = ast_arena.alloc_stmt(ExprStmt::new(print_x_3_expr));
+
+        let root = BlockStmt::new(vec![local_x_1, do_block, print_x_3_stmt]);
+
+        let source_module = SourceModule::new(ast_arena, root);
+        let renamed_ast = rename(&source_module);
+
+        assert_eq!(renamed_ast.get_local_def(x_name_1), Some(LocalId(0)));
+        assert_eq!(renamed_ast.get_local_use(x_1), Some(LocalId(0)));
+        assert_eq!(renamed_ast.get_local_def(x_name_2), Some(LocalId(1)));
+        assert_eq!(renamed_ast.get_local_use(x_2), Some(LocalId(1)));
+        assert_eq!(renamed_ast.get_local_use(x_3), Some(LocalId(0)));
     }
 }
