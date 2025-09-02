@@ -542,7 +542,7 @@ impl<'ast> Renamer<'ast> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{expr::*, name::*, stmt::*};
+    use crate::ast::{expr::*, name::*, stmt::*, ty_expr::*};
 
     use super::*;
 
@@ -693,5 +693,64 @@ mod tests {
         assert_eq!(renamed_ast.get_local_def(x_name_2), Some(LocalId(1)));
         assert_eq!(renamed_ast.get_local_use(x_2), Some(LocalId(1)));
         assert_eq!(renamed_ast.get_local_use(x_3), Some(LocalId(0)));
+    }
+
+    #[test]
+    fn rename_type_aliases() {
+        // type Foo = Bar
+        // type Bar = number
+
+        let mut ast_arena = AstArena::new();
+
+        let foo_name = ast_arena.alloc_name(Name::new("Foo"));
+        let foo_ty_parameters = TyParameters::new(Vec::new(), Vec::new());
+        let bar_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("Bar"));
+        let ty_foo_stmt =
+            ast_arena.alloc_stmt(TypeAliasStmt::new(foo_name, foo_ty_parameters, bar_ty_expr));
+
+        let bar_name = ast_arena.alloc_name(Name::new("Bar"));
+        let bar_ty_parameters = TyParameters::new(Vec::new(), Vec::new());
+        let number_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("number"));
+        let ty_bar_stmt = ast_arena.alloc_stmt(TypeAliasStmt::new(
+            bar_name,
+            bar_ty_parameters,
+            number_ty_expr,
+        ));
+
+        let root = BlockStmt::new(vec![ty_foo_stmt, ty_bar_stmt]);
+
+        let source_module = SourceModule::new(ast_arena, root);
+        let renamed_ast = rename(&source_module);
+    }
+
+    #[test]
+    fn rename_conflict() {
+        // type Foo = number
+        // type Foo = string
+
+        let mut ast_arena = AstArena::new();
+
+        let foo_name_1 = ast_arena.alloc_name(Name::new("Foo"));
+        let foo_ty_parameters_1 = TyParameters::new(Vec::new(), Vec::new());
+        let number_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("number"));
+        let ty_foo_stmt_1 = ast_arena.alloc_stmt(TypeAliasStmt::new(
+            foo_name_1,
+            foo_ty_parameters_1,
+            number_ty_expr,
+        ));
+
+        let foo_name_2 = ast_arena.alloc_name(Name::new("Foo"));
+        let foo_ty_parameters_2 = TyParameters::new(Vec::new(), Vec::new());
+        let string_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("string"));
+        let ty_foo_stmt_2 = ast_arena.alloc_stmt(TypeAliasStmt::new(
+            foo_name_2,
+            foo_ty_parameters_2,
+            string_ty_expr,
+        ));
+
+        let root = BlockStmt::new(vec![ty_foo_stmt_1, ty_foo_stmt_2]);
+
+        let source_module = SourceModule::new(ast_arena, root);
+        let renamed_ast = rename(&source_module);
     }
 }
