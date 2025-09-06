@@ -200,7 +200,7 @@ impl<'ast> Renamer<'ast> {
                 self.visit_block(for_range_scope_id, for_range_stmt.body());
             }
             Stmt::ForIter(for_iter_stmt) => {
-                for local in for_iter_stmt.vars().iter().rev() {
+                for local in for_iter_stmt.vars() {
                     if let Some(annotation) = local.annotation() {
                         self.visit_ty_expr(scope_id, annotation);
                     }
