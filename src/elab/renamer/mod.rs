@@ -2,26 +2,34 @@ mod generator;
 mod renamed_ast;
 mod scope;
 
-use crate::ast::AstArena;
+use std::collections::HashSet;
+
 use crate::ast::expr::{Expr, ExprId, FunctionExpr, ParamKind};
 use crate::ast::name::NameId;
 use crate::ast::stmt::{BlockStmt, Stmt, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprId};
 use crate::ast::ty_pack::{TyPackExpr, TyPackExprId};
+use crate::ast::{AstArena, AstNodeId};
 use crate::driver::source::module::SourceModule;
 use crate::elab::renamer::generator::Generator;
 use crate::elab::renamer::renamed_ast::RenamedAst;
-use crate::elab::renamer::scope::{LexicalScopes, ScopeId};
+use crate::elab::renamer::scope::{ScopeGraph, ScopeId};
 use crate::elab::symbol::Symbol;
 
 pub fn rename(source_module: &SourceModule) -> RenamedResult {
     let mut renamer = Renamer::new(source_module);
 
-    let root_scope_id = renamer.lexical_scopes.new_scope(None);
-    renamer.visit_block(root_scope_id, source_module.root());
+    let ast_arena = source_module.ast_arena();
+    let root = source_module.root();
+
+    let root_scope_id = renamer.scope_graph.new_scope(None);
+    renamer.visit_block(root_scope_id, root);
+    renamer.resolve_type_bindings();
+
+    renamer.scope_graph.check_invariants(ast_arena);
 
     RenamedResult {
-        lexical_scopes: renamer.lexical_scopes,
+        scope_graph: renamer.scope_graph,
         renamed_ast: renamer.renamed_ast,
     }
 }
@@ -34,13 +42,13 @@ pub struct TypeBindingId(u32);
 
 #[derive(Debug, Default, Clone)]
 pub struct RenamedResult {
-    lexical_scopes: LexicalScopes,
+    scope_graph: ScopeGraph,
     renamed_ast: RenamedAst,
 }
 
 impl RenamedResult {
-    pub fn lexical_scopes(&self) -> &LexicalScopes {
-        &self.lexical_scopes
+    pub fn scope_graph(&self) -> &ScopeGraph {
+        &self.scope_graph
     }
 
     pub fn renamed_ast(&self) -> &RenamedAst {
@@ -50,8 +58,9 @@ impl RenamedResult {
 
 struct Renamer<'ast> {
     ast_arena: &'ast AstArena,
-    lexical_scopes: LexicalScopes,
+    scope_graph: ScopeGraph,
     renamed_ast: RenamedAst,
+    pending_use_terms: HashSet<(TyExprId, Symbol)>,
     generator: Generator,
 }
 
@@ -59,14 +68,15 @@ impl<'ast> Renamer<'ast> {
     fn new(source_module: &'ast SourceModule) -> Renamer<'ast> {
         Renamer {
             ast_arena: source_module.ast_arena(),
-            lexical_scopes: LexicalScopes::new(source_module.ast_arena()),
+            scope_graph: ScopeGraph::new(source_module.ast_arena()),
             renamed_ast: RenamedAst::new(),
+            pending_use_terms: HashSet::new(),
             generator: Generator::new(),
         }
     }
 
     fn new_scope(&mut self, scope_id: ScopeId) -> ScopeId {
-        self.lexical_scopes.new_scope(Some(scope_id))
+        self.scope_graph.new_scope(Some(scope_id))
     }
 
     fn rename_binding(&mut self, scope_id: ScopeId, name_id: NameId) {
@@ -74,35 +84,64 @@ impl<'ast> Renamer<'ast> {
         self.renamed_ast.insert_binding_def(name_id, binding_id);
 
         let symbol = Symbol::intern(self.ast_arena[name_id].as_str());
-        self.lexical_scopes[scope_id].insert_binding(symbol, binding_id);
+        self.scope_graph[scope_id].insert_binding(symbol, binding_id);
     }
 
     fn rename_type_binding(&mut self, scope_id: ScopeId, name_id: NameId) {
-        let type_binding_id = self.generator.next_type_binding_id();
+        let symbol = Symbol::intern(self.ast_arena[name_id].as_str());
+
+        let type_binding_id = match self.scope_graph[scope_id].find_type_binding(symbol) {
+            Some(type_binding_id) => type_binding_id,
+            None => self.generator.next_type_binding_id(),
+        };
+
+        self.scope_graph[scope_id].insert_type_binding(symbol, type_binding_id);
         self.renamed_ast
             .insert_type_binding_def(name_id, type_binding_id);
-
-        let symbol = Symbol::intern(self.ast_arena[name_id].as_str());
-        self.lexical_scopes[scope_id].insert_type_binding(symbol, type_binding_id);
     }
 
     fn resolve_binding(&mut self, symbol: Symbol, expr_id: ExprId) {
         // Resolution of lexical bindings are early-binding, so resolve it now.
 
-        let scope_id = self.lexical_scopes.find(expr_id);
-        if let Some(binding_id) = self.lexical_scopes.lookup(scope_id, symbol) {
+        let scope_id = self.scope_graph.get_scope_id(expr_id);
+        if let Some(binding_id) = self.scope_graph.lookup_binding(scope_id, symbol) {
             self.renamed_ast.insert_binding_use(expr_id, binding_id);
         }
     }
 
-    fn resolve_type_binding(&mut self, symbol: Symbol, ty_expr_id: TyExprId) {
-        // Resolution of type bindings are late-bound, resolved when exiting the
-        // scope of the type expressions that references such bindings.
+    fn resolve_type_bindings(&mut self) {
+        // Resolution of type bindings are late-binding, resolved when exiting
+        // scope of the type expressions that references such type bindings.
+
+        let mut free = HashSet::new();
+        for (ty_expr_id, symbol) in self.pending_use_terms.drain() {
+            let scope_id = self.scope_graph.get_scope_id(ty_expr_id);
+
+            if let Some(type_binding_id) = self.scope_graph.lookup_type_binding(scope_id, symbol) {
+                self.renamed_ast
+                    .insert_type_binding_use(ty_expr_id, type_binding_id);
+            } else {
+                free.insert((ty_expr_id, symbol));
+            }
+        }
+
+        self.pending_use_terms = free;
+    }
+
+    fn visit_node(&mut self, scope_id: ScopeId, node_id: impl Into<AstNodeId>) {
+        let node_id = node_id.into();
+
+        self.scope_graph.bind_scope(node_id, scope_id);
+
+        match node_id {
+            AstNodeId::ExprId(id) => self.visit_expr(scope_id, id),
+            AstNodeId::StmtId(id) => self.visit_stmt(scope_id, id),
+            AstNodeId::TyExprId(id) => self.visit_ty_expr(scope_id, id),
+            AstNodeId::TyPackExprId(id) => self.visit_ty_pack_expr(scope_id, id),
+        }
     }
 
     fn visit_expr(&mut self, scope_id: ScopeId, expr_id: ExprId) {
-        self.lexical_scopes.bind_scope(expr_id, scope_id);
-
         match &self.ast_arena[expr_id] {
             Expr::Nil(_) => (),
             Expr::Number(_) => (),
@@ -112,48 +151,46 @@ impl<'ast> Renamer<'ast> {
                 let symbol = Symbol::intern(ident_expr.as_str());
                 self.resolve_binding(symbol, expr_id);
             }
-            Expr::Field(field_expr) => self.visit_expr(scope_id, field_expr.expr()),
+            Expr::Field(field_expr) => self.visit_node(scope_id, field_expr.expr()),
             Expr::Subscript(subscript_expr) => {
-                self.visit_expr(scope_id, subscript_expr.expr());
-                self.visit_expr(scope_id, subscript_expr.index());
+                self.visit_node(scope_id, subscript_expr.expr());
+                self.visit_node(scope_id, subscript_expr.index());
             }
-            Expr::Group(group_expr) => self.visit_expr(scope_id, group_expr.expr()),
+            Expr::Group(group_expr) => self.visit_node(scope_id, group_expr.expr()),
             Expr::Varargs(_) => (),
             Expr::Call(call_expr) => {
-                self.visit_expr(scope_id, call_expr.function());
+                self.visit_node(scope_id, call_expr.function());
 
                 for arg in call_expr.arguments() {
-                    self.visit_expr(scope_id, arg);
+                    self.visit_node(scope_id, arg);
                 }
             }
             Expr::Function(function_expr) => {
                 let function_scope_id = self.new_scope(scope_id);
                 self.visit_function(function_scope_id, function_expr);
             }
-            Expr::Unary(unary_expr) => self.visit_expr(scope_id, unary_expr.expr()),
+            Expr::Unary(unary_expr) => self.visit_node(scope_id, unary_expr.expr()),
             Expr::Binary(binary_expr) => {
-                self.visit_expr(scope_id, binary_expr.lhs());
-                self.visit_expr(scope_id, binary_expr.rhs());
+                self.visit_node(scope_id, binary_expr.lhs());
+                self.visit_node(scope_id, binary_expr.rhs());
             }
         }
     }
 
     fn visit_block(&mut self, scope_id: ScopeId, block_stmt: &BlockStmt) {
         for &stmt in block_stmt.stmts() {
-            self.visit_stmt(scope_id, stmt);
+            self.visit_node(scope_id, stmt);
         }
     }
 
     fn visit_stmt(&mut self, scope_id: ScopeId, stmt_id: StmtId) {
-        self.lexical_scopes.bind_scope(stmt_id, scope_id);
-
         match &self.ast_arena[stmt_id] {
             Stmt::Block(block_stmt) => {
                 let block_scope_id = self.new_scope(scope_id);
                 self.visit_block(block_scope_id, block_stmt);
             }
             Stmt::Branch(if_stmt) => {
-                self.visit_expr(scope_id, if_stmt.condition());
+                self.visit_node(scope_id, if_stmt.condition());
 
                 let then_scope_id = self.new_scope(scope_id);
                 self.visit_block(then_scope_id, if_stmt.then_body());
@@ -164,7 +201,7 @@ impl<'ast> Renamer<'ast> {
                 }
             }
             Stmt::While(while_stmt) => {
-                self.visit_expr(scope_id, while_stmt.condition());
+                self.visit_node(scope_id, while_stmt.condition());
 
                 let while_scope_id = self.new_scope(scope_id);
                 self.visit_block(while_scope_id, while_stmt.body());
@@ -182,17 +219,17 @@ impl<'ast> Renamer<'ast> {
 
                 let repeat_scope_id = self.new_scope(scope_id);
                 self.visit_block(repeat_scope_id, repeat_stmt.body());
-                self.visit_expr(repeat_scope_id, repeat_stmt.condition());
+                self.visit_node(repeat_scope_id, repeat_stmt.condition());
             }
             Stmt::ForRange(for_range_stmt) => {
-                self.visit_expr(scope_id, for_range_stmt.from());
-                self.visit_expr(scope_id, for_range_stmt.to());
+                self.visit_node(scope_id, for_range_stmt.from());
+                self.visit_node(scope_id, for_range_stmt.to());
                 if let Some(step) = for_range_stmt.step() {
-                    self.visit_expr(scope_id, step);
+                    self.visit_node(scope_id, step);
                 }
 
                 if let Some(annotation) = for_range_stmt.var().annotation() {
-                    self.visit_ty_expr(scope_id, annotation);
+                    self.visit_node(scope_id, annotation);
                 }
 
                 let for_range_scope_id = self.new_scope(scope_id);
@@ -202,12 +239,12 @@ impl<'ast> Renamer<'ast> {
             Stmt::ForIter(for_iter_stmt) => {
                 for local in for_iter_stmt.vars() {
                     if let Some(annotation) = local.annotation() {
-                        self.visit_ty_expr(scope_id, annotation);
+                        self.visit_node(scope_id, annotation);
                     }
                 }
 
                 for &expr in for_iter_stmt.exprs() {
-                    self.visit_expr(scope_id, expr);
+                    self.visit_node(scope_id, expr);
                 }
 
                 let for_iter_scope_id = self.new_scope(scope_id);
@@ -222,18 +259,18 @@ impl<'ast> Renamer<'ast> {
             Stmt::Continue(_) => (),
             Stmt::Return(return_stmt) => {
                 for &expr in return_stmt.exprs() {
-                    self.visit_expr(scope_id, expr);
+                    self.visit_node(scope_id, expr);
                 }
             }
-            Stmt::Expr(expr_stmt) => self.visit_expr(scope_id, expr_stmt.expr()),
+            Stmt::Expr(expr_stmt) => self.visit_node(scope_id, expr_stmt.expr()),
             Stmt::Local(local_stmt) => {
                 for &expr in local_stmt.exprs() {
-                    self.visit_expr(scope_id, expr);
+                    self.visit_node(scope_id, expr);
                 }
 
                 for local in local_stmt.locals() {
                     if let Some(annotation) = local.annotation() {
-                        self.visit_ty_expr(scope_id, annotation);
+                        self.visit_node(scope_id, annotation);
                     }
                 }
 
@@ -243,19 +280,19 @@ impl<'ast> Renamer<'ast> {
             }
             Stmt::Assign(assign_stmt) => {
                 for &lvalue in assign_stmt.lvalues() {
-                    self.visit_expr(scope_id, lvalue);
+                    self.visit_node(scope_id, lvalue);
                 }
 
                 for &rvalue in assign_stmt.rvalues() {
-                    self.visit_expr(scope_id, rvalue);
+                    self.visit_node(scope_id, rvalue);
                 }
             }
             Stmt::CompoundAssign(compound_assign_stmt) => {
-                self.visit_expr(scope_id, compound_assign_stmt.lvalue());
-                self.visit_expr(scope_id, compound_assign_stmt.rvalue());
+                self.visit_node(scope_id, compound_assign_stmt.lvalue());
+                self.visit_node(scope_id, compound_assign_stmt.rvalue());
             }
             Stmt::Function(function_stmt) => {
-                self.visit_expr(scope_id, function_stmt.name());
+                self.visit_node(scope_id, function_stmt.name());
 
                 let function_scope_id = self.new_scope(scope_id);
                 self.visit_function(function_scope_id, function_stmt.function());
@@ -267,57 +304,52 @@ impl<'ast> Renamer<'ast> {
                 self.visit_function(function_scope_id, local_function_stmt.function());
             }
             Stmt::TypeAlias(type_alias_stmt) => {
+                self.rename_type_binding(scope_id, type_alias_stmt.name());
+
                 let ty_parameters = type_alias_stmt.ty_parameters();
 
                 if type_alias_stmt.ty_parameters().is_empty() {
-                    self.visit_ty_expr(scope_id, type_alias_stmt.ty_expr());
+                    self.visit_node(scope_id, type_alias_stmt.ty_expr());
                 } else {
                     let ty_params_scope_id = self.new_scope(scope_id);
 
                     for params in ty_parameters.params() {
                         if let Some(ty_expr) = params.default_argument() {
-                            self.visit_ty_expr(ty_params_scope_id, ty_expr);
+                            self.visit_node(ty_params_scope_id, ty_expr);
                         }
                     }
 
                     for variadic_param in ty_parameters.variadic_params() {
                         if let Some(ty_pack_expr) = variadic_param.default_argument() {
-                            self.visit_ty_pack_expr(ty_params_scope_id, ty_pack_expr);
+                            self.visit_node(ty_params_scope_id, ty_pack_expr);
                         }
                     }
 
-                    self.visit_ty_expr(ty_params_scope_id, type_alias_stmt.ty_expr());
+                    self.visit_node(ty_params_scope_id, type_alias_stmt.ty_expr());
                 }
             }
         }
     }
 
     fn visit_ty_expr(&mut self, scope_id: ScopeId, ty_expr_id: TyExprId) {
-        // We still need to visit type expressions since they can reference
-        // bindings.
-
-        self.lexical_scopes.bind_scope(ty_expr_id, scope_id);
-
         match &self.ast_arena[ty_expr_id] {
-            TyExpr::Ident(_) => (), // Late-bound: we resolve this at a later time.
-            TyExpr::Typeof(typeof_ty_expr) => self.visit_expr(scope_id, typeof_ty_expr.expr()),
+            TyExpr::Ident(ident_ty_expr) => {
+                let symbol = Symbol::intern(ident_ty_expr.as_str());
+                self.pending_use_terms.insert((ty_expr_id, symbol));
+            }
+            TyExpr::Typeof(typeof_ty_expr) => self.visit_node(scope_id, typeof_ty_expr.expr()),
         }
     }
 
     fn visit_ty_pack_expr(&mut self, scope_id: ScopeId, ty_pack_expr_id: TyPackExprId) {
-        // We still need to visit type expressions since they can reference
-        // bindings.
-
-        self.lexical_scopes.bind_scope(ty_pack_expr_id, scope_id);
-
         match &self.ast_arena[ty_pack_expr_id] {
             TyPackExpr::List(ty_pack_expr_list) => {
                 for &head in ty_pack_expr_list.head() {
-                    self.visit_ty_expr(scope_id, head);
+                    self.visit_node(scope_id, head);
                 }
 
                 if let Some(tail) = ty_pack_expr_list.tail() {
-                    self.visit_ty_pack_expr(scope_id, tail);
+                    self.visit_node(scope_id, tail);
                 }
             }
         }
@@ -328,19 +360,19 @@ impl<'ast> Renamer<'ast> {
             match param {
                 ParamKind::Param(param) => {
                     if let Some(annotation) = param.annotation() {
-                        self.visit_ty_expr(scope_id, annotation)
+                        self.visit_node(scope_id, annotation)
                     }
                 }
                 ParamKind::ParamPack(param_pack) => {
                     if let Some(annotation) = param_pack.annotation() {
-                        self.visit_ty_pack_expr(scope_id, annotation)
+                        self.visit_node(scope_id, annotation)
                     }
                 }
             }
         }
 
         if let Some(annotation) = function.return_annotation() {
-            self.visit_ty_pack_expr(scope_id, annotation);
+            self.visit_node(scope_id, annotation);
         }
 
         for param in function.parameters() {
@@ -387,9 +419,9 @@ mod tests {
         let renamed_result = rename(&source_module);
         let renamed_ast = renamed_result.renamed_ast();
 
-        assert_eq!(renamed_ast.get_local_def(name_x_1), Some(BindingId(0)));
-        assert_eq!(renamed_ast.get_local_def(name_x_2), Some(BindingId(1)));
-        assert_eq!(renamed_ast.get_local_use(expr_x), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_def(name_x_1), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_def(name_x_2), Some(BindingId(1)));
+        assert_eq!(renamed_ast.get_binding_use(expr_x), Some(BindingId(0)));
     }
 
     #[test]
@@ -415,8 +447,8 @@ mod tests {
         let renamed_result = rename(&source_module);
         let renamed_ast = renamed_result.renamed_ast();
 
-        assert_eq!(renamed_ast.get_local_def(done_name), Some(BindingId(0)));
-        assert_eq!(renamed_ast.get_local_use(condition), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_def(done_name), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_use(condition), Some(BindingId(0)));
     }
 
     #[test]
@@ -446,8 +478,14 @@ mod tests {
         let renamed_result = rename(&source_module);
         let renamed_ast = renamed_result.renamed_ast();
 
-        assert_eq!(renamed_ast.get_local_def(self_ref_name), Some(BindingId(0)));
-        assert_eq!(renamed_ast.get_local_use(self_ref_expr), Some(BindingId(0)));
+        assert_eq!(
+            renamed_ast.get_binding_def(self_ref_name),
+            Some(BindingId(0))
+        );
+        assert_eq!(
+            renamed_ast.get_binding_use(self_ref_expr),
+            Some(BindingId(0))
+        );
     }
 
     #[test]
@@ -506,11 +544,11 @@ mod tests {
         let renamed_result = rename(&source_module);
         let renamed_ast = renamed_result.renamed_ast();
 
-        assert_eq!(renamed_ast.get_local_def(x_name_1), Some(BindingId(0)));
-        assert_eq!(renamed_ast.get_local_use(x_1), Some(BindingId(0)));
-        assert_eq!(renamed_ast.get_local_def(x_name_2), Some(BindingId(1)));
-        assert_eq!(renamed_ast.get_local_use(x_2), Some(BindingId(1)));
-        assert_eq!(renamed_ast.get_local_use(x_3), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_def(x_name_1), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_use(x_1), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_def(x_name_2), Some(BindingId(1)));
+        assert_eq!(renamed_ast.get_binding_use(x_2), Some(BindingId(1)));
+        assert_eq!(renamed_ast.get_binding_use(x_3), Some(BindingId(0)));
     }
 
     #[test]
@@ -540,6 +578,20 @@ mod tests {
         let source_module = SourceModule::new(ast_arena, root);
         let renamed_result = rename(&source_module);
         let renamed_ast = renamed_result.renamed_ast();
+
+        assert_eq!(
+            renamed_ast.get_type_binding_def(foo_name),
+            Some(TypeBindingId(0))
+        );
+        assert_eq!(
+            renamed_ast.get_type_binding_use(bar_ty_expr),
+            Some(TypeBindingId(1))
+        );
+        assert_eq!(
+            renamed_ast.get_type_binding_def(bar_name),
+            Some(TypeBindingId(1))
+        );
+        assert_eq!(renamed_ast.get_type_binding_use(number_ty_expr), None);
     }
 
     #[test]
@@ -572,5 +624,14 @@ mod tests {
         let source_module = SourceModule::new(ast_arena, root);
         let renamed_result = rename(&source_module);
         let renamed_ast = renamed_result.renamed_ast();
+
+        assert_eq!(
+            renamed_ast.get_type_binding_def(foo_name_1),
+            Some(TypeBindingId(0))
+        );
+        assert_eq!(
+            renamed_ast.get_type_binding_def(foo_name_2),
+            Some(TypeBindingId(0))
+        );
     }
 }

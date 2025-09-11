@@ -66,6 +66,10 @@ impl IdentTyExpr {
     pub fn new(ident: impl Into<String>) -> IdentTyExpr {
         IdentTyExpr(ident.into())
     }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
 }
 
 impl TypeofTyExpr {
