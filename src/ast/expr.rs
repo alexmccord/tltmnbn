@@ -57,9 +57,10 @@ impl ops::Index<ExprId> for ExprArena {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Expr {
     Nil(NilExpr),
+    Boolean(BooleanExpr),
     Number(NumberExpr),
     String(StringExpr),
-    Boolean(BooleanExpr),
+    Table(TableExpr),
     Ident(IdentExpr),
     Field(FieldExpr),
     Subscript(SubscriptExpr),
@@ -82,6 +83,21 @@ pub struct NumberExpr(String);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct StringExpr(String);
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum TableField {
+    /// { x = 5 }
+    Field { field: String, expr: ExprId },
+    /// { [x] = y }
+    Index { index: ExprId, expr: ExprId },
+    /// { x }
+    ListItem { expr: ExprId },
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TableExpr {
+    fields: Vec<TableField>,
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct IdentExpr(String);
@@ -208,6 +224,16 @@ impl StringExpr {
 
     pub fn literal(&self) -> &str {
         self.0.as_str()
+    }
+}
+
+impl TableExpr {
+    pub fn new(fields: Vec<TableField>) -> TableExpr {
+        TableExpr { fields }
+    }
+
+    pub fn fields(&self) -> &[TableField] {
+        &self.fields
     }
 }
 
@@ -565,6 +591,12 @@ impl From<NilExpr> for Expr {
     }
 }
 
+impl From<BooleanExpr> for Expr {
+    fn from(value: BooleanExpr) -> Self {
+        Expr::Boolean(value)
+    }
+}
+
 impl From<NumberExpr> for Expr {
     fn from(value: NumberExpr) -> Self {
         Expr::Number(value)
@@ -577,9 +609,9 @@ impl From<StringExpr> for Expr {
     }
 }
 
-impl From<BooleanExpr> for Expr {
-    fn from(value: BooleanExpr) -> Self {
-        Expr::Boolean(value)
+impl From<TableExpr> for Expr {
+    fn from(value: TableExpr) -> Self {
+        Expr::Table(value)
     }
 }
 

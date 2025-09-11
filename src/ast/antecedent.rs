@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::ops;
 
-use crate::ast::expr::{Expr, ExprId, FunctionExpr, ParamKind};
+use crate::ast::expr::{Expr, ExprId, FunctionExpr, ParamKind, TableField};
 use crate::ast::name::Local;
 use crate::ast::stmt::{BlockStmt, Stmt, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprId};
@@ -154,9 +154,21 @@ impl<'ast> AstAntecedentGraphBuilder<'ast> {
     fn visit_expr(&mut self, id: ExprId) {
         match &self.ast_arena[id] {
             Expr::Nil(_) => (),
+            Expr::Boolean(_) => (),
             Expr::Number(_) => (),
             Expr::String(_) => (),
-            Expr::Boolean(_) => (),
+            Expr::Table(table) => {
+                for field in table.fields() {
+                    match *field {
+                        TableField::Field { expr, .. } => self.add_edge(expr, id),
+                        TableField::Index { index, expr } => {
+                            self.add_edge(index, id);
+                            self.add_edge(expr, id);
+                        }
+                        TableField::ListItem { expr } => self.add_edge(expr, id),
+                    }
+                }
+            }
             Expr::Ident(_) => (),
             Expr::Field(field_expr) => self.add_edge(field_expr.expr(), id),
             Expr::Subscript(subscript_expr) => {

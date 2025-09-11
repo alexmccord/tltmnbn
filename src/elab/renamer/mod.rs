@@ -4,7 +4,7 @@ mod scope;
 
 use std::collections::HashSet;
 
-use crate::ast::expr::{Expr, ExprId, FunctionExpr, ParamKind};
+use crate::ast::expr::{Expr, ExprId, FunctionExpr, ParamKind, TableField};
 use crate::ast::name::NameId;
 use crate::ast::stmt::{BlockStmt, Stmt, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprId};
@@ -19,13 +19,11 @@ use crate::elab::symbol::Symbol;
 pub fn rename(source_module: &SourceModule) -> RenamedResult {
     let mut renamer = Renamer::new(source_module);
 
-    let ast_arena = source_module.ast_arena();
-    let root = source_module.root();
-
     let root_scope_id = renamer.scope_graph.new_scope(None);
-    renamer.visit_block(root_scope_id, root);
+    renamer.visit_block(root_scope_id, source_module.root());
     renamer.resolve_type_bindings();
 
+    let ast_arena = source_module.ast_arena();
     renamer.scope_graph.check_invariants(ast_arena);
 
     RenamedResult {
@@ -144,9 +142,21 @@ impl<'ast> Renamer<'ast> {
     fn visit_expr(&mut self, scope_id: ScopeId, expr_id: ExprId) {
         match &self.ast_arena[expr_id] {
             Expr::Nil(_) => (),
+            Expr::Boolean(_) => (),
             Expr::Number(_) => (),
             Expr::String(_) => (),
-            Expr::Boolean(_) => (),
+            Expr::Table(table) => {
+                for field in table.fields() {
+                    match *field {
+                        TableField::Field { expr, .. } => self.visit_node(scope_id, expr),
+                        TableField::Index { index, expr } => {
+                            self.visit_node(scope_id, index);
+                            self.visit_node(scope_id, expr);
+                        }
+                        TableField::ListItem { expr } => self.visit_node(scope_id, expr),
+                    }
+                }
+            }
             Expr::Ident(ident_expr) => {
                 let symbol = Symbol::intern(ident_expr.as_str());
                 self.resolve_binding(symbol, expr_id);
