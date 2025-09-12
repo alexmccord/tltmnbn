@@ -1,42 +1,31 @@
-mod generator;
 mod renamed_ast;
 mod scope;
 
-use std::collections::HashSet;
+pub use crate::elab::renamer::renamed_ast::*;
+pub use crate::elab::renamer::scope::*;
 
 use crate::ast::expr::{Expr, ExprId, FunctionExpr, ParamKind, TableField};
-use crate::ast::name::NameId;
 use crate::ast::stmt::{BlockStmt, Stmt, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprId};
 use crate::ast::ty_pack::{TyPackExpr, TyPackExprId};
 use crate::ast::{AstArena, AstNodeId};
 use crate::driver::source::module::SourceModule;
-use crate::elab::renamer::generator::Generator;
-use crate::elab::renamer::renamed_ast::RenamedAst;
-use crate::elab::renamer::scope::{ScopeGraph, ScopeId};
 use crate::elab::symbol::Symbol;
 
 pub fn rename(source_module: &SourceModule) -> RenamedResult {
     let mut renamer = Renamer::new(source_module);
 
-    let root_scope_id = renamer.scope_graph.new_scope(None);
+    let root_scope_id = renamer.scope_graph.create_root_scope();
     renamer.visit_block(root_scope_id, source_module.root());
-    renamer.resolve_type_bindings();
 
     let ast_arena = source_module.ast_arena();
-    renamer.scope_graph.check_invariants(ast_arena);
+    renamer.scope_graph.assert_invariants(ast_arena);
 
     RenamedResult {
         scope_graph: renamer.scope_graph,
         renamed_ast: renamer.renamed_ast,
     }
 }
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct BindingId(u32);
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TypeBindingId(u32);
 
 #[derive(Debug, Default, Clone)]
 pub struct RenamedResult {
@@ -58,8 +47,6 @@ struct Renamer<'ast> {
     ast_arena: &'ast AstArena,
     scope_graph: ScopeGraph,
     renamed_ast: RenamedAst,
-    pending_use_terms: HashSet<(TyExprId, Symbol)>,
-    generator: Generator,
 }
 
 impl<'ast> Renamer<'ast> {
@@ -68,62 +55,41 @@ impl<'ast> Renamer<'ast> {
             ast_arena: source_module.ast_arena(),
             scope_graph: ScopeGraph::new(source_module.ast_arena()),
             renamed_ast: RenamedAst::new(),
-            pending_use_terms: HashSet::new(),
-            generator: Generator::new(),
         }
     }
 
-    fn new_scope(&mut self, scope_id: ScopeId) -> ScopeId {
-        self.scope_graph.new_scope(Some(scope_id))
-    }
-
-    fn rename_binding(&mut self, scope_id: ScopeId, name_id: NameId) {
-        let binding_id = self.generator.next_binding_id();
-        self.renamed_ast.insert_binding_def(name_id, binding_id);
-
-        let symbol = Symbol::intern(self.ast_arena[name_id].as_str());
-        self.scope_graph[scope_id].insert_binding(symbol, binding_id);
-    }
-
-    fn rename_type_binding(&mut self, scope_id: ScopeId, name_id: NameId) {
-        let symbol = Symbol::intern(self.ast_arena[name_id].as_str());
-
-        let type_binding_id = match self.scope_graph[scope_id].find_type_binding(symbol) {
-            Some(type_binding_id) => type_binding_id,
-            None => self.generator.next_type_binding_id(),
-        };
-
-        self.scope_graph[scope_id].insert_type_binding(symbol, type_binding_id);
-        self.renamed_ast
-            .insert_type_binding_def(name_id, type_binding_id);
+    fn rename_binding(&mut self, scope_id: ScopeId, binder: Binder) {
+        match binder {
+            Binder::Local(name_id) => {
+                let symbol = Symbol::intern(self.ast_arena[name_id].as_str());
+                let binding_id = self.renamed_ast.new_local_binder(name_id);
+                self.scope_graph
+                    .insert_binding(scope_id, symbol, binding_id);
+            }
+            Binder::Global(symbol) => {
+                let binding_id = self.renamed_ast.new_global_binder(symbol);
+                self.scope_graph
+                    .insert_binding(scope_id, symbol, binding_id);
+            }
+        }
     }
 
     fn resolve_binding(&mut self, symbol: Symbol, expr_id: ExprId) {
         // Resolution of lexical bindings are early-binding, so resolve it now.
 
         let scope_id = self.scope_graph.get_scope_id(expr_id);
-        if let Some(binding_id) = self.scope_graph.lookup_binding(scope_id, symbol) {
-            self.renamed_ast.insert_binding_use(expr_id, binding_id);
-        }
-    }
-
-    fn resolve_type_bindings(&mut self) {
-        // Resolution of type bindings are late-binding, resolved when exiting
-        // scope of the type expressions that references such type bindings.
-
-        let mut free = HashSet::new();
-        for (ty_expr_id, symbol) in self.pending_use_terms.drain() {
-            let scope_id = self.scope_graph.get_scope_id(ty_expr_id);
-
-            if let Some(type_binding_id) = self.scope_graph.lookup_type_binding(scope_id, symbol) {
-                self.renamed_ast
-                    .insert_type_binding_use(ty_expr_id, type_binding_id);
-            } else {
-                free.insert((ty_expr_id, symbol));
+        let binding_id = match self.scope_graph.lookup_binding(scope_id, symbol) {
+            Some(binding_id) => binding_id,
+            None => {
+                let root_scope_id = self.scope_graph.create_root_scope();
+                let binding_id = self.renamed_ast.new_global_binder(symbol);
+                self.scope_graph
+                    .insert_binding(root_scope_id, symbol, binding_id);
+                binding_id
             }
-        }
+        };
 
-        self.pending_use_terms = free;
+        self.renamed_ast.insert_binding_use(expr_id, binding_id);
     }
 
     fn visit_node(&mut self, scope_id: ScopeId, node_id: impl Into<AstNodeId>) {
@@ -176,7 +142,7 @@ impl<'ast> Renamer<'ast> {
                 }
             }
             Expr::Function(function_expr) => {
-                let function_scope_id = self.new_scope(scope_id);
+                let function_scope_id = self.scope_graph.create_child_function_scope(scope_id);
                 self.visit_function(function_scope_id, function_expr);
             }
             Expr::Unary(unary_expr) => self.visit_node(scope_id, unary_expr.expr()),
@@ -196,24 +162,24 @@ impl<'ast> Renamer<'ast> {
     fn visit_stmt(&mut self, scope_id: ScopeId, stmt_id: StmtId) {
         match &self.ast_arena[stmt_id] {
             Stmt::Block(block_stmt) => {
-                let block_scope_id = self.new_scope(scope_id);
+                let block_scope_id = self.scope_graph.create_child_binding_scope(scope_id);
                 self.visit_block(block_scope_id, block_stmt);
             }
             Stmt::Branch(if_stmt) => {
                 self.visit_node(scope_id, if_stmt.condition());
 
-                let then_scope_id = self.new_scope(scope_id);
+                let then_scope_id = self.scope_graph.create_child_binding_scope(scope_id);
                 self.visit_block(then_scope_id, if_stmt.then_body());
 
                 if let Some(else_body) = if_stmt.else_body() {
-                    let else_scope_id = self.new_scope(scope_id);
+                    let else_scope_id = self.scope_graph.create_child_binding_scope(scope_id);
                     self.visit_block(else_scope_id, else_body);
                 }
             }
             Stmt::While(while_stmt) => {
                 self.visit_node(scope_id, while_stmt.condition());
 
-                let while_scope_id = self.new_scope(scope_id);
+                let while_scope_id = self.scope_graph.create_child_binding_scope(scope_id);
                 self.visit_block(while_scope_id, while_stmt.body());
             }
             Stmt::Repeat(repeat_stmt) => {
@@ -227,7 +193,7 @@ impl<'ast> Renamer<'ast> {
                 // until done
                 // ```
 
-                let repeat_scope_id = self.new_scope(scope_id);
+                let repeat_scope_id = self.scope_graph.create_child_binding_scope(scope_id);
                 self.visit_block(repeat_scope_id, repeat_stmt.body());
                 self.visit_node(repeat_scope_id, repeat_stmt.condition());
             }
@@ -242,8 +208,11 @@ impl<'ast> Renamer<'ast> {
                     self.visit_node(scope_id, annotation);
                 }
 
-                let for_range_scope_id = self.new_scope(scope_id);
-                self.rename_binding(for_range_scope_id, for_range_stmt.var().name());
+                let for_range_scope_id = self.scope_graph.create_child_binding_scope(scope_id);
+
+                let local_binder = Binder::Local(for_range_stmt.var().name());
+                self.rename_binding(for_range_scope_id, local_binder);
+
                 self.visit_block(for_range_scope_id, for_range_stmt.body());
             }
             Stmt::ForIter(for_iter_stmt) => {
@@ -257,10 +226,10 @@ impl<'ast> Renamer<'ast> {
                     self.visit_node(scope_id, expr);
                 }
 
-                let for_iter_scope_id = self.new_scope(scope_id);
+                let for_iter_scope_id = self.scope_graph.create_child_binding_scope(scope_id);
 
                 for local in for_iter_stmt.vars() {
-                    self.rename_binding(for_iter_scope_id, local.name());
+                    self.rename_binding(for_iter_scope_id, Binder::Local(local.name()));
                 }
 
                 self.visit_block(for_iter_scope_id, for_iter_stmt.body());
@@ -285,7 +254,7 @@ impl<'ast> Renamer<'ast> {
                 }
 
                 for local in local_stmt.locals() {
-                    self.rename_binding(scope_id, local.name());
+                    self.rename_binding(scope_id, Binder::Local(local.name()));
                 }
             }
             Stmt::Assign(assign_stmt) => {
@@ -304,48 +273,49 @@ impl<'ast> Renamer<'ast> {
             Stmt::Function(function_stmt) => {
                 self.visit_node(scope_id, function_stmt.name());
 
-                let function_scope_id = self.new_scope(scope_id);
+                let function_scope_id = self.scope_graph.create_child_function_scope(scope_id);
                 self.visit_function(function_scope_id, function_stmt.function());
             }
             Stmt::LocalFunction(local_function_stmt) => {
-                self.rename_binding(scope_id, local_function_stmt.name());
+                self.rename_binding(scope_id, Binder::Local(local_function_stmt.name()));
 
-                let function_scope_id = self.new_scope(scope_id);
+                let function_scope_id = self.scope_graph.create_child_function_scope(scope_id);
                 self.visit_function(function_scope_id, local_function_stmt.function());
             }
             Stmt::TypeAlias(type_alias_stmt) => {
-                self.rename_type_binding(scope_id, type_alias_stmt.name());
+                // Because we don't introduce any new type bindings, we don't
+                // need a new scope.
 
                 let ty_parameters = type_alias_stmt.ty_parameters();
 
-                if type_alias_stmt.ty_parameters().is_empty() {
-                    self.visit_node(scope_id, type_alias_stmt.ty_expr());
-                } else {
-                    let ty_params_scope_id = self.new_scope(scope_id);
-
-                    for params in ty_parameters.params() {
-                        if let Some(ty_expr) = params.default_argument() {
-                            self.visit_node(ty_params_scope_id, ty_expr);
-                        }
+                for params in ty_parameters.params() {
+                    if let Some(ty_expr) = params.default_argument() {
+                        self.visit_node(scope_id, ty_expr);
                     }
-
-                    for variadic_param in ty_parameters.variadic_params() {
-                        if let Some(ty_pack_expr) = variadic_param.default_argument() {
-                            self.visit_node(ty_params_scope_id, ty_pack_expr);
-                        }
-                    }
-
-                    self.visit_node(ty_params_scope_id, type_alias_stmt.ty_expr());
                 }
+
+                for variadic_param in ty_parameters.variadic_params() {
+                    if let Some(ty_pack_expr) = variadic_param.default_argument() {
+                        self.visit_node(scope_id, ty_pack_expr);
+                    }
+                }
+
+                self.visit_node(scope_id, type_alias_stmt.ty_expr());
             }
         }
     }
 
     fn visit_ty_expr(&mut self, scope_id: ScopeId, ty_expr_id: TyExprId) {
         match &self.ast_arena[ty_expr_id] {
-            TyExpr::Ident(ident_ty_expr) => {
-                let symbol = Symbol::intern(ident_ty_expr.as_str());
-                self.pending_use_terms.insert((ty_expr_id, symbol));
+            TyExpr::Ident(_) => (),
+            TyExpr::Instantiation(instantiation_ty_expr) => {
+                for &ty_expr_id in instantiation_ty_expr.ty_args() {
+                    self.visit_ty_expr(scope_id, ty_expr_id);
+                }
+
+                for &ty_pack_expr_id in instantiation_ty_expr.ty_pack_args() {
+                    self.visit_ty_pack_expr(scope_id, ty_pack_expr_id);
+                }
             }
             TyExpr::Typeof(typeof_ty_expr) => self.visit_node(scope_id, typeof_ty_expr.expr()),
         }
@@ -387,7 +357,9 @@ impl<'ast> Renamer<'ast> {
 
         for param in function.parameters() {
             match param {
-                ParamKind::Param(param) => self.rename_binding(scope_id, param.name()),
+                ParamKind::Param(param) => {
+                    self.rename_binding(scope_id, Binder::Local(param.name()))
+                }
                 ParamKind::ParamPack(_) => (),
             }
         }
@@ -398,7 +370,7 @@ impl<'ast> Renamer<'ast> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{expr::*, name::*, stmt::*, ty_expr::*};
+    use crate::ast::{expr::*, name::*, stmt::*};
 
     use super::*;
 
@@ -429,9 +401,9 @@ mod tests {
         let renamed_result = rename(&source_module);
         let renamed_ast = renamed_result.renamed_ast();
 
-        assert_eq!(renamed_ast.get_binding_def(name_x_1), Some(BindingId(0)));
-        assert_eq!(renamed_ast.get_binding_def(name_x_2), Some(BindingId(1)));
-        assert_eq!(renamed_ast.get_binding_use(expr_x), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_def(name_x_1).unwrap().index(), 0);
+        assert_eq!(renamed_ast.get_binding_def(name_x_2).unwrap().index(), 1);
+        assert_eq!(renamed_ast.get_binding_use(expr_x).unwrap().index(), 0);
     }
 
     #[test]
@@ -457,8 +429,8 @@ mod tests {
         let renamed_result = rename(&source_module);
         let renamed_ast = renamed_result.renamed_ast();
 
-        assert_eq!(renamed_ast.get_binding_def(done_name), Some(BindingId(0)));
-        assert_eq!(renamed_ast.get_binding_use(condition), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_def(done_name).unwrap().index(), 0);
+        assert_eq!(renamed_ast.get_binding_use(condition).unwrap().index(), 0);
     }
 
     #[test]
@@ -489,12 +461,12 @@ mod tests {
         let renamed_ast = renamed_result.renamed_ast();
 
         assert_eq!(
-            renamed_ast.get_binding_def(self_ref_name),
-            Some(BindingId(0))
+            renamed_ast.get_binding_def(self_ref_name).unwrap().index(),
+            0
         );
         assert_eq!(
-            renamed_ast.get_binding_use(self_ref_expr),
-            Some(BindingId(0))
+            renamed_ast.get_binding_use(self_ref_expr).unwrap().index(),
+            0
         );
     }
 
@@ -554,94 +526,97 @@ mod tests {
         let renamed_result = rename(&source_module);
         let renamed_ast = renamed_result.renamed_ast();
 
-        assert_eq!(renamed_ast.get_binding_def(x_name_1), Some(BindingId(0)));
-        assert_eq!(renamed_ast.get_binding_use(x_1), Some(BindingId(0)));
-        assert_eq!(renamed_ast.get_binding_def(x_name_2), Some(BindingId(1)));
-        assert_eq!(renamed_ast.get_binding_use(x_2), Some(BindingId(1)));
-        assert_eq!(renamed_ast.get_binding_use(x_3), Some(BindingId(0)));
+        assert_eq!(renamed_ast.get_binding_def(x_name_1).unwrap().index(), 0);
+        assert_eq!(renamed_ast.get_binding_use(print_1).unwrap().index(), 1);
+        assert_eq!(renamed_ast.get_binding_use(x_1).unwrap().index(), 0);
+        assert_eq!(renamed_ast.get_binding_def(x_name_2).unwrap().index(), 2);
+        assert_eq!(renamed_ast.get_binding_use(print_2).unwrap().index(), 1);
+        assert_eq!(renamed_ast.get_binding_use(x_2).unwrap().index(), 2);
+        assert_eq!(renamed_ast.get_binding_use(print_3).unwrap().index(), 1);
+        assert_eq!(renamed_ast.get_binding_use(x_3).unwrap().index(), 0);
     }
 
-    #[test]
-    fn rename_type_aliases() {
-        // type Foo = Bar
-        // type Bar = number
+    // #[test]
+    // fn rename_type_aliases() {
+    //     // type Foo = Bar
+    //     // type Bar = number
 
-        let mut ast_arena = AstArena::new();
+    //     let mut ast_arena = AstArena::new();
 
-        let foo_name = ast_arena.alloc_name(Name::new("Foo"));
-        let foo_ty_parameters = TyParameters::new(Vec::new(), Vec::new());
-        let bar_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("Bar"));
-        let ty_foo_stmt =
-            ast_arena.alloc_stmt(TypeAliasStmt::new(foo_name, foo_ty_parameters, bar_ty_expr));
+    //     let foo_name = ast_arena.alloc_name(Name::new("Foo"));
+    //     let foo_ty_parameters = TyParameters::new(Vec::new(), Vec::new());
+    //     let bar_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("Bar"));
+    //     let ty_foo_stmt =
+    //         ast_arena.alloc_stmt(TypeAliasStmt::new(foo_name, foo_ty_parameters, bar_ty_expr));
 
-        let bar_name = ast_arena.alloc_name(Name::new("Bar"));
-        let bar_ty_parameters = TyParameters::new(Vec::new(), Vec::new());
-        let number_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("number"));
-        let ty_bar_stmt = ast_arena.alloc_stmt(TypeAliasStmt::new(
-            bar_name,
-            bar_ty_parameters,
-            number_ty_expr,
-        ));
+    //     let bar_name = ast_arena.alloc_name(Name::new("Bar"));
+    //     let bar_ty_parameters = TyParameters::new(Vec::new(), Vec::new());
+    //     let number_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("number"));
+    //     let ty_bar_stmt = ast_arena.alloc_stmt(TypeAliasStmt::new(
+    //         bar_name,
+    //         bar_ty_parameters,
+    //         number_ty_expr,
+    //     ));
 
-        let root = BlockStmt::new(vec![ty_foo_stmt, ty_bar_stmt]);
+    //     let root = BlockStmt::new(vec![ty_foo_stmt, ty_bar_stmt]);
 
-        let source_module = SourceModule::new(ast_arena, root);
-        let renamed_result = rename(&source_module);
-        let renamed_ast = renamed_result.renamed_ast();
+    //     let source_module = SourceModule::new(ast_arena, root);
+    //     let renamed_result = rename(&source_module);
+    //     let renamed_ast = renamed_result.renamed_ast();
 
-        assert_eq!(
-            renamed_ast.get_type_binding_def(foo_name),
-            Some(TypeBindingId(0))
-        );
-        assert_eq!(
-            renamed_ast.get_type_binding_use(bar_ty_expr),
-            Some(TypeBindingId(1))
-        );
-        assert_eq!(
-            renamed_ast.get_type_binding_def(bar_name),
-            Some(TypeBindingId(1))
-        );
-        assert_eq!(renamed_ast.get_type_binding_use(number_ty_expr), None);
-    }
+    //     assert_eq!(
+    //         renamed_ast.get_type_binding_def(foo_name),
+    //         Some(TypeBindingId(0))
+    //     );
+    //     assert_eq!(
+    //         renamed_ast.get_type_binding_use(bar_ty_expr),
+    //         Some(TypeBindingId(1))
+    //     );
+    //     assert_eq!(
+    //         renamed_ast.get_type_binding_def(bar_name),
+    //         Some(TypeBindingId(1))
+    //     );
+    //     assert_eq!(renamed_ast.get_type_binding_use(number_ty_expr), None);
+    // }
 
-    #[test]
-    fn rename_conflict() {
-        // type Foo = number
-        // type Foo = string
+    // #[test]
+    // fn rename_conflict() {
+    //     // type Foo = number
+    //     // type Foo = string
 
-        let mut ast_arena = AstArena::new();
+    //     let mut ast_arena = AstArena::new();
 
-        let foo_name_1 = ast_arena.alloc_name(Name::new("Foo"));
-        let foo_ty_parameters_1 = TyParameters::new(Vec::new(), Vec::new());
-        let number_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("number"));
-        let ty_foo_stmt_1 = ast_arena.alloc_stmt(TypeAliasStmt::new(
-            foo_name_1,
-            foo_ty_parameters_1,
-            number_ty_expr,
-        ));
+    //     let foo_name_1 = ast_arena.alloc_name(Name::new("Foo"));
+    //     let foo_ty_parameters_1 = TyParameters::new(Vec::new(), Vec::new());
+    //     let number_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("number"));
+    //     let ty_foo_stmt_1 = ast_arena.alloc_stmt(TypeAliasStmt::new(
+    //         foo_name_1,
+    //         foo_ty_parameters_1,
+    //         number_ty_expr,
+    //     ));
 
-        let foo_name_2 = ast_arena.alloc_name(Name::new("Foo"));
-        let foo_ty_parameters_2 = TyParameters::new(Vec::new(), Vec::new());
-        let string_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("string"));
-        let ty_foo_stmt_2 = ast_arena.alloc_stmt(TypeAliasStmt::new(
-            foo_name_2,
-            foo_ty_parameters_2,
-            string_ty_expr,
-        ));
+    //     let foo_name_2 = ast_arena.alloc_name(Name::new("Foo"));
+    //     let foo_ty_parameters_2 = TyParameters::new(Vec::new(), Vec::new());
+    //     let string_ty_expr = ast_arena.alloc_ty_expr(IdentTyExpr::new("string"));
+    //     let ty_foo_stmt_2 = ast_arena.alloc_stmt(TypeAliasStmt::new(
+    //         foo_name_2,
+    //         foo_ty_parameters_2,
+    //         string_ty_expr,
+    //     ));
 
-        let root = BlockStmt::new(vec![ty_foo_stmt_1, ty_foo_stmt_2]);
+    //     let root = BlockStmt::new(vec![ty_foo_stmt_1, ty_foo_stmt_2]);
 
-        let source_module = SourceModule::new(ast_arena, root);
-        let renamed_result = rename(&source_module);
-        let renamed_ast = renamed_result.renamed_ast();
+    //     let source_module = SourceModule::new(ast_arena, root);
+    //     let renamed_result = rename(&source_module);
+    //     let renamed_ast = renamed_result.renamed_ast();
 
-        assert_eq!(
-            renamed_ast.get_type_binding_def(foo_name_1),
-            Some(TypeBindingId(0))
-        );
-        assert_eq!(
-            renamed_ast.get_type_binding_def(foo_name_2),
-            Some(TypeBindingId(0))
-        );
-    }
+    //     assert_eq!(
+    //         renamed_ast.get_type_binding_def(foo_name_1),
+    //         Some(TypeBindingId(0))
+    //     );
+    //     assert_eq!(
+    //         renamed_ast.get_type_binding_def(foo_name_2),
+    //         Some(TypeBindingId(0))
+    //     );
+    // }
 }

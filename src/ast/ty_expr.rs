@@ -3,6 +3,7 @@ use std::ops;
 use id_arena::{Arena, Id};
 
 use crate::ast::expr::ExprId;
+use crate::ast::ty_pack::TyPackExprId;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TyExprArena {
@@ -53,11 +54,19 @@ impl ops::Index<TyExprId> for TyExprArena {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TyExpr {
     Ident(IdentTyExpr),
+    Instantiation(InstantiationTyExpr),
     Typeof(TypeofTyExpr),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct IdentTyExpr(String);
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct InstantiationTyExpr {
+    name: String,
+    ty_args: Vec<TyExprId>,
+    ty_pack_args: Vec<TyPackExprId>,
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TypeofTyExpr(ExprId);
@@ -69,6 +78,32 @@ impl IdentTyExpr {
 
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+}
+
+impl InstantiationTyExpr {
+    pub fn new(
+        ident: impl Into<String>,
+        ty_args: Vec<TyExprId>,
+        ty_pack_args: Vec<TyPackExprId>,
+    ) -> InstantiationTyExpr {
+        InstantiationTyExpr {
+            name: ident.into(),
+            ty_args,
+            ty_pack_args,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub fn ty_args(&self) -> &[TyExprId] {
+        &self.ty_args
+    }
+
+    pub fn ty_pack_args(&self) -> &[TyPackExprId] {
+        &self.ty_pack_args
     }
 }
 
@@ -85,6 +120,12 @@ impl TypeofTyExpr {
 impl From<IdentTyExpr> for TyExpr {
     fn from(value: IdentTyExpr) -> Self {
         TyExpr::Ident(value)
+    }
+}
+
+impl From<InstantiationTyExpr> for TyExpr {
+    fn from(value: InstantiationTyExpr) -> Self {
+        TyExpr::Instantiation(value)
     }
 }
 

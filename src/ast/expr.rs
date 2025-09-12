@@ -202,8 +202,8 @@ impl BooleanExpr {
         BooleanExpr(literal)
     }
 
-    pub fn literal(&self) -> &bool {
-        &self.0
+    pub fn literal(&self) -> bool {
+        self.0
     }
 }
 

@@ -261,6 +261,10 @@ impl<'ast> AstAntecedentGraphBuilder<'ast> {
     fn visit_ty_expr(&mut self, id: TyExprId) {
         match &self.ast_arena[id] {
             TyExpr::Ident(_) => (),
+            TyExpr::Instantiation(instantiation_ty_expr) => {
+                self.add_edges(instantiation_ty_expr.ty_args().iter().cloned(), id);
+                self.add_edges(instantiation_ty_expr.ty_pack_args().iter().cloned(), id);
+            }
             TyExpr::Typeof(typeof_ty_expr) => self.add_edge(typeof_ty_expr.expr(), id),
         }
     }

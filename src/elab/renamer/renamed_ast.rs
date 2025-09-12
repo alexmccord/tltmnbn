@@ -1,65 +1,74 @@
 use std::collections::HashMap;
+use std::ops;
 
 use crate::ast::expr::ExprId;
 use crate::ast::name::NameId;
-use crate::ast::ty_expr::TyExprId;
-use crate::elab::renamer::{BindingId, TypeBindingId};
+use crate::elab::symbol::Symbol;
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BindingId(u32);
 
 #[derive(Debug, Default, Clone)]
 pub struct RenamedAst {
-    binding_defs: HashMap<NameId, BindingId>,
-    binding_uses: HashMap<ExprId, BindingId>,
-    type_binding_defs: HashMap<NameId, TypeBindingId>,
-    type_binding_uses: HashMap<TyExprId, TypeBindingId>,
+    defs: HashMap<NameId, BindingId>,
+    uses: HashMap<ExprId, BindingId>,
+    binders: Vec<Binder>,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum Binder {
+    Local(NameId),
+    Global(Symbol),
 }
 
 impl RenamedAst {
     pub fn new() -> RenamedAst {
         RenamedAst {
-            binding_defs: HashMap::new(),
-            binding_uses: HashMap::new(),
-            type_binding_defs: HashMap::new(),
-            type_binding_uses: HashMap::new(),
+            defs: HashMap::new(),
+            uses: HashMap::new(),
+            binders: Vec::new(),
         }
     }
 
     pub fn get_binding_def(&self, name_id: NameId) -> Option<BindingId> {
-        self.binding_defs.get(&name_id).cloned()
+        self.defs.get(&name_id).cloned()
     }
 
     pub fn get_binding_use(&self, expr_id: ExprId) -> Option<BindingId> {
-        self.binding_uses.get(&expr_id).cloned()
+        self.uses.get(&expr_id).cloned()
     }
 
-    pub fn get_type_binding_def(&self, name_id: NameId) -> Option<TypeBindingId> {
-        self.type_binding_defs.get(&name_id).cloned()
+    fn new_binder(&mut self, binder: Binder) -> BindingId {
+        let binding_id = BindingId(self.binders.len() as u32);
+        self.binders.push(binder);
+        binding_id
     }
 
-    pub fn get_type_binding_use(&self, ty_expr_id: TyExprId) -> Option<TypeBindingId> {
-        self.type_binding_uses.get(&ty_expr_id).cloned()
+    pub(super) fn new_local_binder(&mut self, name_id: NameId) -> BindingId {
+        let binding_id = self.new_binder(Binder::Local(name_id));
+        self.defs.insert(name_id, binding_id);
+        binding_id
     }
 
-    pub(super) fn insert_binding_def(&mut self, name_id: NameId, binding_id: BindingId) {
-        self.binding_defs.insert(name_id, binding_id);
+    pub(super) fn new_global_binder(&mut self, symbol: Symbol) -> BindingId {
+        self.new_binder(Binder::Global(symbol))
     }
 
     pub(super) fn insert_binding_use(&mut self, expr_id: ExprId, binding_id: BindingId) {
-        self.binding_uses.insert(expr_id, binding_id);
+        self.uses.insert(expr_id, binding_id);
     }
+}
 
-    pub(super) fn insert_type_binding_def(
-        &mut self,
-        name_id: NameId,
-        type_binding_id: TypeBindingId,
-    ) {
-        self.type_binding_defs.insert(name_id, type_binding_id);
+impl BindingId {
+    pub fn index(&self) -> usize {
+        self.0 as usize
     }
+}
 
-    pub(super) fn insert_type_binding_use(
-        &mut self,
-        ty_expr_id: TyExprId,
-        type_binding_id: TypeBindingId,
-    ) {
-        self.type_binding_uses.insert(ty_expr_id, type_binding_id);
+impl ops::Index<BindingId> for RenamedAst {
+    type Output = Binder;
+
+    fn index(&self, index: BindingId) -> &Self::Output {
+        &self.binders[index.index()]
     }
 }

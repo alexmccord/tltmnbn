@@ -21,6 +21,15 @@ impl TyArena {
         TyId(self.tys.alloc(ty.into()))
     }
 
+    pub fn fresh_ty(&mut self, lower_bound: impl Into<Ty>, upper_bound: impl Into<Ty>) -> TyId {
+        let lower_bound = self.alloc(lower_bound);
+        let upper_bound = self.alloc(upper_bound);
+        self.alloc(FreeTy {
+            lower_bound,
+            upper_bound,
+        })
+    }
+
     pub fn get(&self, TyId(id): TyId) -> Option<&Ty> {
         self.tys.get(id)
     }
@@ -54,8 +63,10 @@ pub enum Ty {
     Singleton(SingletonTy),
     Union(UnionTy),
     Intersection(IntersectionTy),
+    Negation(NegationTy),
     Property(PropertyTy),
     Indexer(IndexerTy),
+    Metavariable(MetavariableTy),
     Unknown,
     Never,
     Error,
@@ -93,6 +104,11 @@ pub struct IntersectionTy {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct NegationTy {
+    inner: TyId,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct PropertyTy {
     field: StrId,
     ty_id: TyId,
@@ -102,6 +118,18 @@ pub struct PropertyTy {
 pub struct IndexerTy {
     key_ty_id: TyId,
     value_ty_id: TyId,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum MetavariableTy {
+    Bound(TyId),
+    Fresh(FreeTy),
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct FreeTy {
+    lower_bound: TyId,
+    upper_bound: TyId,
 }
 
 impl SingletonTy {
@@ -154,6 +182,16 @@ impl IntersectionTy {
     }
 }
 
+impl NegationTy {
+    pub fn new(negated_ty: TyId) -> NegationTy {
+        NegationTy { inner: negated_ty }
+    }
+
+    pub fn negated(&self) -> TyId {
+        self.inner
+    }
+}
+
 impl PropertyTy {
     pub fn new(field: StrId, ty_id: TyId) -> PropertyTy {
         PropertyTy { field, ty_id }
@@ -185,8 +223,96 @@ impl IndexerTy {
     }
 }
 
+impl FreeTy {
+    pub fn lower_bound(&self) -> TyId {
+        self.lower_bound
+    }
+
+    pub fn upper_bound(&self) -> TyId {
+        self.upper_bound
+    }
+}
+
 impl From<PrimitiveTy> for Ty {
     fn from(value: PrimitiveTy) -> Self {
         Ty::Primitive(value)
+    }
+}
+
+impl From<SingletonTy> for Ty {
+    fn from(value: SingletonTy) -> Self {
+        Ty::Singleton(value)
+    }
+}
+
+impl From<BooleanSingletonTy> for SingletonTy {
+    fn from(value: BooleanSingletonTy) -> Self {
+        SingletonTy::Boolean(value)
+    }
+}
+
+impl From<StringSingletonTy> for SingletonTy {
+    fn from(value: StringSingletonTy) -> Self {
+        SingletonTy::String(value)
+    }
+}
+
+impl From<BooleanSingletonTy> for Ty {
+    fn from(value: BooleanSingletonTy) -> Self {
+        Ty::Singleton(value.into())
+    }
+}
+
+impl From<StringSingletonTy> for Ty {
+    fn from(value: StringSingletonTy) -> Self {
+        Ty::Singleton(value.into())
+    }
+}
+
+impl From<UnionTy> for Ty {
+    fn from(value: UnionTy) -> Self {
+        Ty::Union(value)
+    }
+}
+
+impl From<IntersectionTy> for Ty {
+    fn from(value: IntersectionTy) -> Self {
+        Ty::Intersection(value)
+    }
+}
+
+impl From<NegationTy> for Ty {
+    fn from(value: NegationTy) -> Self {
+        Ty::Negation(value)
+    }
+}
+
+impl From<PropertyTy> for Ty {
+    fn from(value: PropertyTy) -> Self {
+        Ty::Property(value)
+    }
+}
+
+impl From<IndexerTy> for Ty {
+    fn from(value: IndexerTy) -> Self {
+        Ty::Indexer(value)
+    }
+}
+
+impl From<MetavariableTy> for Ty {
+    fn from(value: MetavariableTy) -> Self {
+        Ty::Metavariable(value)
+    }
+}
+
+impl From<FreeTy> for MetavariableTy {
+    fn from(value: FreeTy) -> Self {
+        MetavariableTy::Fresh(value)
+    }
+}
+
+impl From<FreeTy> for Ty {
+    fn from(value: FreeTy) -> Self {
+        Ty::Metavariable(value.into())
     }
 }
