@@ -1,7 +1,6 @@
 pub mod module;
 
 use std::collections::HashMap;
-use std::ops;
 use std::path::{Path, PathBuf};
 
 use crate::driver::source::module::SourceModule;
@@ -9,7 +8,7 @@ use crate::driver::source::module::SourceModule;
 #[derive(Debug, Default)]
 pub struct SourceGraph {
     source_ids: HashMap<PathBuf, SourceId>,
-    source_modules: SourceInfo<SourceModule>,
+    source_modules: Vec<SourceModule>,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -19,7 +18,7 @@ impl SourceGraph {
     pub fn new() -> SourceGraph {
         SourceGraph {
             source_ids: HashMap::new(),
-            source_modules: SourceInfo::new(),
+            source_modules: Vec::new(),
         }
     }
 
@@ -30,50 +29,6 @@ impl SourceGraph {
 
     pub fn find(&self, path: impl AsRef<Path>) -> Option<SourceId> {
         self.source_ids.get(path.as_ref()).cloned()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SourceInfo<T> {
-    stuff: Vec<T>,
-}
-
-impl<T> SourceInfo<T> {
-    pub fn new() -> SourceInfo<T> {
-        SourceInfo { stuff: Vec::new() }
-    }
-
-    pub fn insert(&mut self, source_id: SourceId, value: T)
-    where
-        T: Default,
-    {
-        let index = source_id.0;
-
-        if self.stuff.len() >= index {
-            self.stuff.resize_with(index + 1, T::default);
-        }
-
-        self.stuff[index] = value;
-    }
-}
-
-impl<T> Default for SourceInfo<T> {
-    fn default() -> SourceInfo<T> {
-        SourceInfo::new()
-    }
-}
-
-impl<T> ops::Index<SourceId> for SourceInfo<T> {
-    type Output = T;
-
-    fn index(&self, index: SourceId) -> &Self::Output {
-        &self.stuff[index.0]
-    }
-}
-
-impl<T> ops::IndexMut<SourceId> for SourceInfo<T> {
-    fn index_mut(&mut self, index: SourceId) -> &mut Self::Output {
-        &mut self.stuff[index.0]
     }
 }
 
