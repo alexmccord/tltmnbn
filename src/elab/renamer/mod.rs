@@ -119,7 +119,7 @@ impl<'ast> Renamer<'ast> {
                             self.visit_node(scope_id, index);
                             self.visit_node(scope_id, expr);
                         }
-                        TableField::ListItem { expr } => self.visit_node(scope_id, expr),
+                        TableField::Item { expr } => self.visit_node(scope_id, expr),
                     }
                 }
             }

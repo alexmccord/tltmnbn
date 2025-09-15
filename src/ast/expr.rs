@@ -91,7 +91,7 @@ pub enum TableField {
     /// { [x] = y }
     Index { index: ExprId, expr: ExprId },
     /// { x }
-    ListItem { expr: ExprId },
+    Item { expr: ExprId },
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

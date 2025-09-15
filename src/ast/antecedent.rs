@@ -165,7 +165,7 @@ impl<'ast> AstAntecedentGraphBuilder<'ast> {
                             self.add_edge(index, id);
                             self.add_edge(expr, id);
                         }
-                        TableField::ListItem { expr } => self.add_edge(expr, id),
+                        TableField::Item { expr } => self.add_edge(expr, id),
                     }
                 }
             }
