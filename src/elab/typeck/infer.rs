@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
 use crate::ast::AstArena;
-use crate::ast::expr::{Expr, ExprId};
+use crate::ast::expr::{BinaryOp, Expr, ExprId, TableField, UnaryOp};
 use crate::ast::name::Local;
 use crate::ast::stmt::{BlockStmt, Stmt, StmtId};
 use crate::ast::ty_expr::{TyExpr, TyExprId};
-use crate::elab::renamer::{Binder, BindingId, RenamedAst, RenamedResult, ScopeGraph};
+use crate::elab::renamer::{BindingId, RenamedAst, RenamedResult, ScopeGraph};
+use crate::elab::typeck::obligations::forest::ObligationForest;
+use crate::elab::typeck::obligations::*;
+use crate::elab::typeck::prop::PropositionalCalculus;
 use crate::elab::typeck::type_graph::TypeGraph;
 use crate::elab::typeck::{tp::ir::*, ty::ir::*};
 use crate::global_ctxt::GlobalCtxt;
@@ -29,6 +32,8 @@ pub struct TypeInfer<'ast> {
     scope_graph: &'ast ScopeGraph,
     renamed_ast: &'ast RenamedAst,
     type_graph: TypeGraph,
+    propositions: PropositionalCalculus,
+    obligations: ObligationForest,
     typed_ast: TypedAst,
 }
 
@@ -39,24 +44,25 @@ impl<'ast> TypeInfer<'ast> {
             scope_graph: renamed_result.scope_graph(),
             renamed_ast: renamed_result.renamed_ast(),
             type_graph: TypeGraph::new(),
+            propositions: PropositionalCalculus::new(),
+            obligations: ObligationForest::new(),
             typed_ast: TypedAst::new(),
         }
     }
 
-    fn lookup_binding(&mut self, binding_id: BindingId) -> Option<TyId> {
-        let binder = &self.renamed_ast[binding_id];
-
-        match binder {
-            Binder::Local(_) => self.typed_ast.binding_types.get(&binding_id).cloned(),
-            Binder::Global(symbol) => todo!(),
-        }
+    fn lookup_binding(&self, binding_id: BindingId) -> Option<TyId> {
+        self.typed_ast.binding_types.get(&binding_id).cloned()
     }
 
     fn new_binding(&mut self, local: &Local) -> TyId {
         let binding_id = self.renamed_ast.get_binding_def(local.name()).unwrap();
         let ty_id = match local.annotation() {
             Some(annotation) => self.visit_ty_expr(annotation),
-            None => self.type_graph.fresh_ty(Ty::Never, Ty::Unknown),
+            None => {
+                let ty = self.type_graph.fresh_ty();
+                self.obligations.insert_root(FinalObligation::new(ty));
+                ty
+            }
         };
 
         self.typed_ast.binding_types.insert(binding_id, ty_id);
@@ -88,11 +94,19 @@ impl<'ast> TypeInfer<'ast> {
                 self.visit_expr(repeat_stmt.condition());
             }
             Stmt::ForRange(for_range_stmt) => {
-                self.new_binding(for_range_stmt.var());
-                self.visit_expr(for_range_stmt.from());
-                self.visit_expr(for_range_stmt.to());
-                if let Some(step) = for_range_stmt.step() {
-                    self.visit_expr(step);
+                let binding_ty = self.new_binding(for_range_stmt.var());
+                let from_ty = self.visit_expr(for_range_stmt.from());
+                let to_ty = self.visit_expr(for_range_stmt.to());
+                let step_ty = for_range_stmt.step().map(|e| self.visit_expr(e));
+
+                let mut root = self.obligations.insert_root(SubtypeObligation::new(
+                    binding_ty,
+                    self.type_graph.builtin().number_ty,
+                ));
+                root.add(SubtypeObligation::new(from_ty, binding_ty));
+                root.add(SubtypeObligation::new(to_ty, binding_ty));
+                if let Some(step_ty) = step_ty {
+                    root.add(SubtypeObligation::new(step_ty, binding_ty));
                 }
 
                 self.visit_block(for_range_stmt.body());
@@ -138,7 +152,7 @@ impl<'ast> TypeInfer<'ast> {
 
     fn visit_lvalue(&mut self, expr: ExprId) -> TyId {
         match &self.ast_arena[expr] {
-            Expr::Ident(ident_expr) => {
+            Expr::Ident(_) => {
                 let binding_id = self.renamed_ast.get_binding_use(expr).unwrap();
                 self.lookup_binding(binding_id).unwrap()
             }
@@ -150,55 +164,125 @@ impl<'ast> TypeInfer<'ast> {
 
     fn visit_expr(&mut self, expr: ExprId) -> TyId {
         match &self.ast_arena[expr] {
-            Expr::Nil(_) => self.type_graph.alloc_ty(PrimitiveTy::Nil),
+            Expr::Nil(_) => self.type_graph.builtin().nil_ty,
             Expr::Boolean(boolean_expr) => {
-                let lower_bound = BooleanSingletonTy::new(boolean_expr.literal());
+                let lb = self
+                    .type_graph
+                    .alloc_ty(SingletonTy::boolean(boolean_expr.literal()));
+                let ub = self.type_graph.builtin().boolean_ty;
+                let ty = self.type_graph.fresh_ty();
 
-                let false_ty = self.type_graph.alloc_ty(BooleanSingletonTy::new(false));
-                let true_ty = self.type_graph.alloc_ty(BooleanSingletonTy::new(true));
-                let upper_bound = UnionTy::new(Vec::from([true_ty, false_ty]));
-                self.type_graph.fresh_ty(lower_bound, upper_bound)
+                let mut root = self
+                    .obligations
+                    .insert_root(FallbackObligation::new(ty, PrimitiveFallback::Boolean));
+                root.add(SubtypeObligation::new(lb, ty));
+                root.add(SubtypeObligation::new(ty, ub));
+
+                ty
             }
-            Expr::Number(_) => self.type_graph.alloc_ty(PrimitiveTy::Number),
+            Expr::Number(_) => self.type_graph.builtin().number_ty,
             Expr::String(string_expr) => {
                 let str_id = GlobalCtxt::with(|ctxt| ctxt.intern(string_expr.literal()));
 
-                let lower_bound = StringSingletonTy::new(str_id);
-                let upper_bound = PrimitiveTy::String;
-                self.type_graph.fresh_ty(lower_bound, upper_bound)
+                let lb = self.type_graph.alloc_ty(SingletonTy::string(str_id));
+                let ub = self.type_graph.builtin().string_ty;
+                let ty = self.type_graph.fresh_ty();
+
+                let mut root = self
+                    .obligations
+                    .insert_root(FallbackObligation::new(ty, PrimitiveFallback::String));
+                root.add(SubtypeObligation::new(lb, ty));
+                root.add(SubtypeObligation::new(ty, ub));
+
+                ty
             }
-            Expr::Table(table_expr) => todo!(),
-            Expr::Ident(ident_expr) => match self.renamed_ast.get_binding_use(expr) {
-                Some(binding_id) => self.lookup_binding(binding_id).unwrap(),
-                None => todo!("globals case, requires lookup by Symbol"),
-            },
+            Expr::Table(table_expr) => {
+                let mut constituents = Vec::new();
+                constituents.push(self.type_graph.builtin().table_ty);
+
+                for field in table_expr.fields() {
+                    let ty = match field {
+                        TableField::Field { field, expr } => {
+                            let field_symbol = GlobalCtxt::with(|ctxt| ctxt.intern(field));
+                            let field_ty = self.visit_expr(*expr);
+                            self.type_graph
+                                .alloc_ty(PropertyTy::new(field_symbol, field_ty))
+                        }
+                        TableField::Index { index, expr } => {
+                            let key_ty = self.visit_expr(*index);
+                            let value_ty = self.visit_expr(*expr);
+                            self.type_graph.alloc_ty(IndexerTy::new(key_ty, value_ty))
+                        }
+                        TableField::Item { expr } => {
+                            let key_ty = self.type_graph.builtin().number_ty;
+                            let value_ty = self.visit_expr(*expr);
+                            self.type_graph.alloc_ty(IndexerTy::new(key_ty, value_ty))
+                        }
+                    };
+
+                    constituents.push(ty);
+                }
+
+                self.type_graph.alloc_ty(IntersectionTy::new(constituents))
+            }
+            Expr::Ident(_) => {
+                let binding_id = self
+                    .renamed_ast
+                    .get_binding_use(expr)
+                    .expect("identifiers should always have a BindingId");
+
+                self.lookup_binding(binding_id)
+                    .expect("every BindingId must be bound to a type before their use")
+            }
             Expr::Field(field_expr) => todo!(),
             Expr::Subscript(subscript_expr) => todo!(),
             Expr::Group(group_expr) => self.visit_expr(group_expr.expr()),
             Expr::Varargs(varargs_expr) => todo!(),
             Expr::Call(call_expr) => todo!(),
             Expr::Function(function_expr) => todo!(),
-            Expr::Unary(unary_expr) => todo!(),
-            Expr::Binary(binary_expr) => todo!(),
+            Expr::Unary(unary_expr) => {
+                let inner_ty = self.visit_expr(unary_expr.expr());
+
+                match unary_expr.op() {
+                    UnaryOp::Minus => todo!(),
+                    UnaryOp::Len => self.type_graph.builtin().number_ty,
+                    UnaryOp::Not => self.type_graph.builtin().boolean_ty,
+                }
+            }
+            Expr::Binary(binary_expr) => {
+                let lhs_ty = self.visit_expr(binary_expr.lhs());
+                let rhs_ty = self.visit_expr(binary_expr.rhs());
+
+                match binary_expr.op() {
+                    BinaryOp::Add => todo!(),
+                    BinaryOp::Sub => todo!(),
+                    BinaryOp::Mul => todo!(),
+                    BinaryOp::Div => todo!(),
+                    BinaryOp::FloorDiv => todo!(),
+                    BinaryOp::Mod => todo!(),
+                    BinaryOp::Pow => todo!(),
+                    BinaryOp::Concat => todo!(),
+                    BinaryOp::CompareEq => todo!(),
+                    BinaryOp::CompareNe => todo!(),
+                    BinaryOp::CompareLt
+                    | BinaryOp::CompareLe
+                    | BinaryOp::CompareGt
+                    | BinaryOp::CompareGe => self.type_graph.builtin().boolean_ty,
+                    BinaryOp::And => todo!(),
+                    BinaryOp::Or => todo!(),
+                }
+            }
         }
     }
 
     fn visit_expr_tail(&mut self, expr: ExprId) -> TyPackId {
         match &self.ast_arena[expr] {
-            Expr::Nil(nil_expr) => todo!(),
-            Expr::Boolean(boolean_expr) => todo!(),
-            Expr::Number(number_expr) => todo!(),
-            Expr::String(string_expr) => todo!(),
-            Expr::Table(table_expr) => todo!(),
-            Expr::Ident(ident_expr) => todo!(),
-            Expr::Field(field_expr) => todo!(),
-            Expr::Subscript(subscript_expr) => todo!(),
-            Expr::Group(group_expr) => todo!(),
             Expr::Varargs(varargs_expr) => todo!(),
             Expr::Call(call_expr) => todo!(),
-            Expr::Function(function_expr) => todo!(),
-            Expr::Unary(unary_expr) => todo!(),
-            Expr::Binary(binary_expr) => todo!(),
+            _ => {
+                let ty = self.visit_expr(expr);
+                todo!()
+            }
         }
     }
 
@@ -223,5 +307,56 @@ impl<'ast> TypeInfer<'ast> {
             TyExpr::Instantiation(instantiation_ty_expr) => todo!(),
             TyExpr::Typeof(typeof_ty_expr) => self.visit_expr(typeof_ty_expr.expr()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::AstArena;
+    use crate::ast::expr::*;
+    use crate::ast::name::{Local, Name};
+    use crate::ast::stmt::*;
+
+    #[test]
+    fn infer_primitives() {
+        let mut ast_arena = AstArena::new();
+
+        let mut locals = Vec::new();
+
+        let five = ast_arena.alloc_expr(NumberExpr::new("5"));
+        let name_five = ast_arena.alloc_name(Name::new("five"));
+        locals.push(Local::new(name_five, None));
+
+        let nil = ast_arena.alloc_expr(NilExpr);
+        let name_nil_expr = ast_arena.alloc_name(Name::new("nil_expr"));
+        locals.push(Local::new(name_nil_expr, None));
+
+        let hello = ast_arena.alloc_expr(StringExpr::new("hello!"));
+        let name_hello = ast_arena.alloc_name(Name::new("hello"));
+        locals.push(Local::new(name_hello, None));
+
+        let true_boolean = ast_arena.alloc_expr(BooleanExpr::new(true));
+        let name_true_expr = ast_arena.alloc_name(Name::new("true_expr"));
+        locals.push(Local::new(name_true_expr, None));
+
+        let two = ast_arena.alloc_expr(NumberExpr::new("2"));
+        let seven = ast_arena.alloc_expr(NumberExpr::new("7"));
+        let table = ast_arena.alloc_expr(TableExpr::new(vec![
+            TableField::Field {
+                field: String::from("x"),
+                expr: two,
+            },
+            TableField::Field {
+                field: String::from("y"),
+                expr: seven,
+            },
+        ]));
+        let name_table = ast_arena.alloc_name(Name::new("table"));
+        locals.push(Local::new(name_table, None));
+
+        let local_stmt = ast_arena.alloc_stmt(LocalStmt::new(
+            locals,
+            vec![five, nil, hello, true_boolean, table],
+        ));
     }
 }

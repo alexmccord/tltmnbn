@@ -21,12 +21,10 @@ impl TyArena {
         TyId(self.tys.alloc(ty.into()))
     }
 
-    pub fn fresh_ty(&mut self, lower_bound: impl Into<Ty>, upper_bound: impl Into<Ty>) -> TyId {
-        let lower_bound = self.alloc(lower_bound);
-        let upper_bound = self.alloc(upper_bound);
+    pub fn fresh_ty(&mut self) -> TyId {
         self.alloc(FreeTy {
-            lower_bound,
-            upper_bound,
+            lower_bounds: Vec::new(),
+            upper_bounds: Vec::new(),
         })
     }
 
@@ -128,8 +126,8 @@ pub enum MetavariableTy {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FreeTy {
-    lower_bound: TyId,
-    upper_bound: TyId,
+    lower_bounds: Vec<TyId>,
+    upper_bounds: Vec<TyId>,
 }
 
 impl SingletonTy {
@@ -224,12 +222,12 @@ impl IndexerTy {
 }
 
 impl FreeTy {
-    pub fn lower_bound(&self) -> TyId {
-        self.lower_bound
+    pub fn lower_bounds(&self) -> &[TyId] {
+        &self.lower_bounds
     }
 
-    pub fn upper_bound(&self) -> TyId {
-        self.upper_bound
+    pub fn upper_bounds(&self) -> &[TyId] {
+        &self.upper_bounds
     }
 }
 
