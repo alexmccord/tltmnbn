@@ -1,5 +1,10 @@
-use crate::elab::typeck::tp::ir::{TyPack, TyPackArena, TyPackId};
-use crate::elab::typeck::ty::ir::{PrimitiveTy, SingletonTy, Ty, TyArena, TyId, UnionTy};
+pub mod tp;
+pub mod ty;
+
+use std::ops;
+
+use crate::elab::typeck::type_graph::tp::{TyPack, TyPackArena, TyPackId};
+use crate::elab::typeck::type_graph::ty::{PrimitiveTy, SingletonTy, Ty, TyArena, TyId, UnionTy};
 
 #[derive(Debug, Clone)]
 pub struct TypeGraph {
@@ -81,5 +86,21 @@ impl TypeGraph {
 impl Default for TypeGraph {
     fn default() -> Self {
         TypeGraph::new()
+    }
+}
+
+impl ops::Index<TyId> for TypeGraph {
+    type Output = Ty;
+
+    fn index(&self, index: TyId) -> &Self::Output {
+        &self.ty_arena[index]
+    }
+}
+
+impl ops::Index<TyPackId> for TypeGraph {
+    type Output = TyPack;
+
+    fn index(&self, index: TyPackId) -> &Self::Output {
+        &self.tp_arena[index]
     }
 }
