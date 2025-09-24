@@ -1,7 +1,7 @@
 pub mod forest;
 pub mod solver;
 
-use crate::elab::typeck::type_graph::ty::TyId;
+use crate::elab::typeck::ty::TyId;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ObligationId(u32);

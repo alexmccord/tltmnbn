@@ -166,8 +166,8 @@ impl ops::IndexMut<ObligationId> for ObligationForest {
 #[cfg(test)]
 mod tests {
     use crate::elab::typeck::obligations::SubtypeObligation;
+    use crate::elab::typeck::ty::PrimitiveTy;
     use crate::elab::typeck::type_graph::TypeGraph;
-    use crate::elab::typeck::type_graph::ty::PrimitiveTy;
 
     use super::*;
 

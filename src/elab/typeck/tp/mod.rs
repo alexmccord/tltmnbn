@@ -46,5 +46,11 @@ impl ops::Index<TyPackId> for TyPackArena {
     }
 }
 
+impl ops::IndexMut<TyPackId> for TyPackArena {
+    fn index_mut(&mut self, TyPackId(id): TyPackId) -> &mut Self::Output {
+        &mut self.tps[id]
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TyPack {}

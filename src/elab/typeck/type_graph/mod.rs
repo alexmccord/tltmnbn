@@ -1,10 +1,7 @@
-pub mod tp;
-pub mod ty;
-
 use std::ops;
 
-use crate::elab::typeck::type_graph::tp::{TyPack, TyPackArena, TyPackId};
-use crate::elab::typeck::type_graph::ty::{PrimitiveTy, SingletonTy, Ty, TyArena, TyId, UnionTy};
+use crate::elab::typeck::tp::{TyPack, TyPackArena, TyPackId};
+use crate::elab::typeck::ty::{PrimitiveTy, SingletonTy, Ty, TyArena, TyId, UnionTy};
 
 #[derive(Debug, Clone)]
 pub struct TypeGraph {
