@@ -32,21 +32,22 @@ impl TyArena {
         self.tys.get(id)
     }
 
-    /// Returns true if `ty_id` is a fresh type now bound to the given `ty`.
+    /// Returns true if `from` is a fresh type now bound to the given `to` type.
     ///
-    /// Panics if the `ty_id` is being bound to another type in a way that forms
-    /// a cycle that would fail occurrence checking.
+    /// Panics if `from` is being bound to another type in a way that forms a
+    /// cycle that would fail occurrence check.
     pub fn bind(&mut self, from: TyId, to: TyId) -> bool {
         // We'll follow and shadow the from type, but not the to type since the
         // constraints for any bound types in `to` also applies to `from`.
         let from = self.follow(from);
 
         if self.occurs_check(from, self.follow(to)) {
-            panic!("attempted to form a cyclic type variable constraint");
+            panic!("attempted to form a cyclic metavariable");
         }
 
         if let Ty::Metavariable(metavar) = &mut self.tys[from.0] {
-            assert!(metavar.is_free_ty());
+            let is_free = matches!(metavar, MetavariableTy::Fresh(_));
+            assert!(is_free, "attempted to rebind a bound metavariable");
             *metavar = MetavariableTy::Bound(to);
             true
         } else {
@@ -284,26 +285,6 @@ impl IndexerTy {
     }
 }
 
-impl MetavariableTy {
-    pub fn get_free_type(&self) -> Option<&FreeTy> {
-        match self {
-            MetavariableTy::Bound(_) => None,
-            MetavariableTy::Fresh(free_ty) => Some(free_ty),
-        }
-    }
-
-    pub fn get_bound_to_type(&self) -> Option<TyId> {
-        match self {
-            MetavariableTy::Bound(ty_id) => Some(*ty_id),
-            MetavariableTy::Fresh(_) => None,
-        }
-    }
-
-    pub fn is_free_ty(&self) -> bool {
-        matches!(self, MetavariableTy::Fresh(_))
-    }
-}
-
 impl FreeTy {
     pub fn lower_bounds(&self) -> &[TyId] {
         &self.lower_bounds
@@ -422,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "attempted to form a cyclic type variable constraint")]
+    #[should_panic(expected = "attempted to form a cyclic metavariable")]
     fn detect_cycles() {
         let mut arena = TyArena::new();
 

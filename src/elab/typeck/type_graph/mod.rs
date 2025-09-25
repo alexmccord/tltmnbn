@@ -29,32 +29,7 @@ impl TypeGraph {
     pub fn new() -> TypeGraph {
         let mut ty_arena = TyArena::new();
         let tp_arena = TyPackArena::new();
-
-        let nil_ty = ty_arena.alloc(PrimitiveTy::Nil);
-        let false_ty = ty_arena.alloc(SingletonTy::boolean(false));
-        let true_ty = ty_arena.alloc(SingletonTy::boolean(true));
-        let boolean_ty = ty_arena.alloc(UnionTy::new(vec![false_ty, true_ty]));
-        let number_ty = ty_arena.alloc(PrimitiveTy::Number);
-        let string_ty = ty_arena.alloc(PrimitiveTy::String);
-        let function_ty = ty_arena.alloc(PrimitiveTy::Function);
-        let table_ty = ty_arena.alloc(PrimitiveTy::Table);
-        let unknown_ty = ty_arena.alloc(Ty::Unknown);
-        let never_ty = ty_arena.alloc(Ty::Never);
-        let error_ty = ty_arena.alloc(Ty::Error);
-
-        let builtin_types = BuiltinTypes {
-            nil_ty,
-            false_ty,
-            true_ty,
-            boolean_ty,
-            number_ty,
-            string_ty,
-            function_ty,
-            table_ty,
-            unknown_ty,
-            never_ty,
-            error_ty,
-        };
+        let builtin_types = BuiltinTypes::new(&mut ty_arena);
 
         TypeGraph {
             ty_arena,
@@ -78,6 +53,10 @@ impl TypeGraph {
     pub fn alloc_tp(&mut self, tp: impl Into<TyPack>) -> TyPackId {
         self.tp_arena.alloc(tp)
     }
+
+    pub fn fresh_tp(&mut self) -> TyPackId {
+        self.tp_arena.fresh_tp()
+    }
 }
 
 impl Default for TypeGraph {
@@ -99,5 +78,35 @@ impl ops::Index<TyPackId> for TypeGraph {
 
     fn index(&self, index: TyPackId) -> &Self::Output {
         &self.tp_arena[index]
+    }
+}
+
+impl BuiltinTypes {
+    fn new(ty_arena: &mut TyArena) -> BuiltinTypes {
+        let nil_ty = ty_arena.alloc(PrimitiveTy::Nil);
+        let false_ty = ty_arena.alloc(SingletonTy::boolean(false));
+        let true_ty = ty_arena.alloc(SingletonTy::boolean(true));
+        let boolean_ty = ty_arena.alloc(UnionTy::new(vec![false_ty, true_ty]));
+        let number_ty = ty_arena.alloc(PrimitiveTy::Number);
+        let string_ty = ty_arena.alloc(PrimitiveTy::String);
+        let function_ty = ty_arena.alloc(PrimitiveTy::Function);
+        let table_ty = ty_arena.alloc(PrimitiveTy::Table);
+        let unknown_ty = ty_arena.alloc(Ty::Unknown);
+        let never_ty = ty_arena.alloc(Ty::Never);
+        let error_ty = ty_arena.alloc(Ty::Error);
+
+        BuiltinTypes {
+            nil_ty,
+            false_ty,
+            true_ty,
+            boolean_ty,
+            number_ty,
+            string_ty,
+            function_ty,
+            table_ty,
+            unknown_ty,
+            never_ty,
+            error_ty,
+        }
     }
 }
