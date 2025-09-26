@@ -2,7 +2,7 @@ use std::ops;
 
 use id_arena::{Arena, Id};
 
-use crate::interner::StrId;
+use crate::elab::symbol::Symbol;
 
 #[derive(Debug, Default, Clone)]
 pub struct TyArena {
@@ -153,7 +153,7 @@ pub enum SingletonTy {
 pub struct BooleanSingletonTy(bool);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct StringSingletonTy(StrId);
+pub struct StringSingletonTy(Symbol);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct UnionTy {
@@ -172,7 +172,7 @@ pub struct NegationTy {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct PropertyTy {
-    field: StrId,
+    field: Symbol,
     ty_id: TyId,
 }
 
@@ -199,7 +199,7 @@ impl SingletonTy {
         SingletonTy::Boolean(BooleanSingletonTy::new(value))
     }
 
-    pub fn string(value: StrId) -> SingletonTy {
+    pub fn string(value: Symbol) -> SingletonTy {
         SingletonTy::String(StringSingletonTy::new(value))
     }
 }
@@ -215,11 +215,11 @@ impl BooleanSingletonTy {
 }
 
 impl StringSingletonTy {
-    pub fn new(value: StrId) -> StringSingletonTy {
+    pub fn new(value: Symbol) -> StringSingletonTy {
         StringSingletonTy(value)
     }
 
-    pub fn get(&self) -> StrId {
+    pub fn get(&self) -> Symbol {
         self.0
     }
 }
@@ -255,11 +255,11 @@ impl NegationTy {
 }
 
 impl PropertyTy {
-    pub fn new(field: StrId, ty_id: TyId) -> PropertyTy {
+    pub fn new(field: Symbol, ty_id: TyId) -> PropertyTy {
         PropertyTy { field, ty_id }
     }
 
-    pub fn field(&self) -> StrId {
+    pub fn field(&self) -> Symbol {
         self.field
     }
 
