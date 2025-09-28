@@ -10,7 +10,7 @@ use crate::elab::renamer::BindingId;
 use crate::elab::symbol::Symbol;
 
 #[derive(Debug, Default, Clone)]
-pub struct ScopeGraph {
+pub struct ScopeForest {
     scopes: Vec<Scope>,
     binding_scopes: Vec<BindingScope>,
     function_scopes: Vec<FunctionScope>,
@@ -47,9 +47,9 @@ pub struct BindingScopeId(u32);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FunctionScopeId(u32);
 
-impl ScopeGraph {
-    pub fn new(ast_arena: &AstArena) -> ScopeGraph {
-        ScopeGraph {
+impl ScopeForest {
+    pub fn new(ast_arena: &AstArena) -> ScopeForest {
+        ScopeForest {
             scopes: Vec::new(),
             binding_scopes: Vec::new(),
             function_scopes: Vec::new(),
@@ -111,7 +111,7 @@ impl ScopeGraph {
         function_scope_id
     }
 
-    pub(super) fn create_root_scope(&mut self) -> ScopeId {
+    pub(super) fn root_scope(&mut self) -> ScopeId {
         if self.scopes.is_empty() {
             let binding_scope_id = self.new_binding_scope();
             let function_scope_id = self.new_function_scope();
@@ -164,7 +164,7 @@ impl ScopeGraph {
     }
 }
 
-impl ops::Index<ScopeId> for ScopeGraph {
+impl ops::Index<ScopeId> for ScopeForest {
     type Output = Scope;
 
     fn index(&self, index: ScopeId) -> &Self::Output {
@@ -172,13 +172,13 @@ impl ops::Index<ScopeId> for ScopeGraph {
     }
 }
 
-impl ops::IndexMut<ScopeId> for ScopeGraph {
+impl ops::IndexMut<ScopeId> for ScopeForest {
     fn index_mut(&mut self, index: ScopeId) -> &mut Self::Output {
         &mut self.scopes[index.index()]
     }
 }
 
-impl ops::Index<BindingScopeId> for ScopeGraph {
+impl ops::Index<BindingScopeId> for ScopeForest {
     type Output = BindingScope;
 
     fn index(&self, index: BindingScopeId) -> &Self::Output {
@@ -186,13 +186,13 @@ impl ops::Index<BindingScopeId> for ScopeGraph {
     }
 }
 
-impl ops::IndexMut<BindingScopeId> for ScopeGraph {
+impl ops::IndexMut<BindingScopeId> for ScopeForest {
     fn index_mut(&mut self, index: BindingScopeId) -> &mut Self::Output {
         &mut self.binding_scopes[index.index()]
     }
 }
 
-impl ops::Index<FunctionScopeId> for ScopeGraph {
+impl ops::Index<FunctionScopeId> for ScopeForest {
     type Output = FunctionScope;
 
     fn index(&self, index: FunctionScopeId) -> &Self::Output {
@@ -200,7 +200,7 @@ impl ops::Index<FunctionScopeId> for ScopeGraph {
     }
 }
 
-impl ops::IndexMut<FunctionScopeId> for ScopeGraph {
+impl ops::IndexMut<FunctionScopeId> for ScopeForest {
     fn index_mut(&mut self, index: FunctionScopeId) -> &mut Self::Output {
         &mut self.function_scopes[index.index()]
     }
@@ -262,7 +262,7 @@ impl FunctionScopeId {
 
 #[derive(Debug, Clone)]
 pub struct ParentIter<'a> {
-    scope_graph: &'a ScopeGraph,
+    scope_graph: &'a ScopeForest,
     scope_id: Option<ScopeId>,
 }
 

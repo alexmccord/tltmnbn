@@ -38,20 +38,18 @@ impl RenamedAst {
         self.uses.get(&expr_id).cloned()
     }
 
-    fn new_binder(&mut self, binder: Binder) -> BindingId {
+    pub(super) fn add_binder(&mut self, binder: Binder) -> BindingId {
         let binding_id = BindingId(self.binders.len() as u32);
+
+        match binder {
+            Binder::Local(name_id) => {
+                self.defs.insert(name_id, binding_id);
+            }
+            Binder::Global(_) => (),
+        }
+
         self.binders.push(binder);
         binding_id
-    }
-
-    pub(super) fn new_local_binder(&mut self, name_id: NameId) -> BindingId {
-        let binding_id = self.new_binder(Binder::Local(name_id));
-        self.defs.insert(name_id, binding_id);
-        binding_id
-    }
-
-    pub(super) fn new_global_binder(&mut self, symbol: Symbol) -> BindingId {
-        self.new_binder(Binder::Global(symbol))
     }
 
     pub(super) fn insert_binding_use(&mut self, expr_id: ExprId, binding_id: BindingId) {
